@@ -1,0 +1,41 @@
+name: "Reusable DO Deployment"
+description: "Reusable GitHub Action to deploy Docker apps to DigitalOcean with health checks and rollback"
+author: "Hino9LLC"
+
+inputs:
+  do_domain:
+    description: "Public domain for container"
+    required: true
+  do_registry:
+    description: "DigitalOcean registry name"
+    required: true
+  do_access_token:
+    description: "DigitalOcean API token"
+    required: true
+  container_name:
+    description: "Container name to deploy"
+    required: true
+  ssl_cert_path:
+    description: "Path to SSL cert inside droplet"
+    required: true
+  ssl_key_path:
+    description: "Path to SSL key inside droplet"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Make script executable
+      run: chmod +x ./entrypoint.sh
+      shell: bash
+
+    - name: Run deploy script
+      run: ./entrypoint.sh
+      shell: bash
+      env:
+        DO_DOMAIN: ${{ inputs.do_domain }}
+        DO_REGISTRY: ${{ inputs.do_registry }}
+        DO_ACCESS_TOKEN: ${{ inputs.do_access_token }}
+        CONTAINER_NAME: ${{ inputs.container_name }}
+        SSL_CERT_PATH: ${{ inputs.ssl_cert_path }}
+        SSL_KEY_PATH: ${{ inputs.ssl_key_path }}
