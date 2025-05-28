@@ -30,30 +30,22 @@ validate_ssl_config() {
     echo "   - DO_DOMAIN: ${DO_DOMAIN}"
     echo "   - SSL_CERT_PATH: ${SSL_CERT_PATH}"
     echo "   - SSL_KEY_PATH: ${SSL_KEY_PATH}"
-    
-    # Debug environment information
-    echo "🔍 Environment Information:"
-    echo "   - Current directory: $(pwd)"
-    echo "   - Environment: ${GITHUB_ACTIONS:-Not GitHub Actions}"
-    echo "   - OpenSSL version: $(openssl version 2>/dev/null || echo 'Not available')"
-    echo "   - Certificate file size: $(wc -c < "${SSL_CERT_PATH}" 2>/dev/null || echo 'Cannot read') bytes"
-    echo "   - Key file size: $(wc -c < "${SSL_KEY_PATH}" 2>/dev/null || echo 'Cannot read') bytes"
-    echo "   - Certificate file type: $(file "${SSL_CERT_PATH}" 2>/dev/null || echo 'Cannot determine')"
-    echo "   - Key file type: $(file "${SSL_KEY_PATH}" 2>/dev/null || echo 'Cannot determine')"
 
     # Validate files exist and are readable
     [ -r "${SSL_CERT_PATH}" ] || { 
         echo "❌ SSL certificate not readable: ${SSL_CERT_PATH}"
         echo "   - File exists: $([ -e "${SSL_CERT_PATH}" ] && echo "Yes" || echo "No")"
-        echo "   - File permissions: $(ls -l "${SSL_CERT_PATH}" 2>/dev/null || echo "Cannot read permissions")"
-        echo "   - Directory permissions: $(ls -ld "$(dirname "${SSL_CERT_PATH}")" 2>/dev/null || echo "Cannot read directory permissions")"
+        echo "   - File permissions: $(ls -l "${SSL_CERT_PATH}" 2>/dev/null | awk '{print $1, $3, $4}' || echo "Cannot read permissions")"
+        echo "   - Directory permissions: $(ls -ld "$(dirname "${SSL_CERT_PATH}")" 2>/dev/null | awk '{print $1, $3, $4}' || echo "Cannot read directory permissions")"
+        echo "   - OpenSSL version: $(openssl version 2>/dev/null || echo 'Not available')"
         exit 1 
     }
     [ -r "${SSL_KEY_PATH}" ] || { 
         echo "❌ SSL key not readable: ${SSL_KEY_PATH}"
         echo "   - File exists: $([ -e "${SSL_KEY_PATH}" ] && echo "Yes" || echo "No")"
-        echo "   - File permissions: $(ls -l "${SSL_KEY_PATH}" 2>/dev/null || echo "Cannot read permissions")"
-        echo "   - Directory permissions: $(ls -ld "$(dirname "${SSL_KEY_PATH}")" 2>/dev/null || echo "Cannot read directory permissions")"
+        echo "   - File permissions: $(ls -l "${SSL_KEY_PATH}" 2>/dev/null | awk '{print $1, $3, $4}' || echo "Cannot read permissions")"
+        echo "   - Directory permissions: $(ls -ld "$(dirname "${SSL_KEY_PATH}")" 2>/dev/null | awk '{print $1, $3, $4}' || echo "Cannot read directory permissions")"
+        echo "   - OpenSSL version: $(openssl version 2>/dev/null || echo 'Not available')"
         exit 1 
     }
     
@@ -62,10 +54,8 @@ validate_ssl_config() {
         # Validate certificate format
         if ! openssl x509 -in "${SSL_CERT_PATH}" -text -noout >/dev/null 2>&1; then
             echo "❌ Invalid certificate format"
-            echo "   - Certificate details:"
-            openssl x509 -in "${SSL_CERT_PATH}" -text -noout 2>&1 || true
-            echo "   - Raw certificate content (first 100 chars):"
-            head -c 100 "${SSL_CERT_PATH}" | xxd -p || true
+            echo "   - Certificate validation failed"
+            echo "   - OpenSSL version: $(openssl version 2>/dev/null || echo 'Not available')"
             exit 1
         fi
 
@@ -73,10 +63,8 @@ validate_ssl_config() {
         if ! openssl pkey -in "${SSL_KEY_PATH}" -check -noout >/dev/null 2>&1; then
             if ! openssl rsa -in "${SSL_KEY_PATH}" -check -noout >/dev/null 2>&1; then
                 echo "❌ Invalid key format"
-                echo "   - Key details:"
-                openssl pkey -in "${SSL_KEY_PATH}" -check -noout 2>&1 || true
-                echo "   - Raw key content (first 100 chars):"
-                head -c 100 "${SSL_KEY_PATH}" | xxd -p || true
+                echo "   - Key validation failed"
+                echo "   - OpenSSL version: $(openssl version 2>/dev/null || echo 'Not available')"
                 exit 1
             fi
         fi
@@ -92,12 +80,8 @@ validate_ssl_config() {
         
         if [ -z "$cert_domain" ]; then
             echo "❌ Could not extract domain from certificate"
-            echo "   - Certificate subject:"
-            openssl x509 -in "${SSL_CERT_PATH}" -noout -subject 2>/dev/null || true
-            echo "   - Certificate SAN:"
-            openssl x509 -in "${SSL_CERT_PATH}" -noout -text 2>/dev/null | grep -A1 "Subject Alternative Name" || true
-            echo "   - Full certificate text:"
-            openssl x509 -in "${SSL_CERT_PATH}" -text -noout 2>/dev/null || true
+            echo "   - Certificate validation failed: No domain found in certificate"
+            echo "   - OpenSSL version: $(openssl version 2>/dev/null || echo 'Not available')"
             exit 1
         fi
         
@@ -105,12 +89,7 @@ validate_ssl_config() {
             echo "❌ Certificate domain does not match DO_DOMAIN"
             echo "   - Expected domain: ${DO_DOMAIN}"
             echo "   - Certificate domain: ${cert_domain}"
-            echo "   - Certificate details:"
-            openssl x509 -in "${SSL_CERT_PATH}" -noout -subject -nameopt RFC2253 2>/dev/null || true
-            echo "   - Certificate SAN:"
-            openssl x509 -in "${SSL_CERT_PATH}" -noout -text 2>/dev/null | grep -A1 "Subject Alternative Name" || true
-            echo "   - Full certificate text:"
-            openssl x509 -in "${SSL_CERT_PATH}" -text -noout 2>/dev/null || true
+            echo "   - OpenSSL version: $(openssl version 2>/dev/null || echo 'Not available')"
             exit 1
         fi
     else
