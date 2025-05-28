@@ -185,9 +185,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  deploy:
+  build-and-push:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
@@ -211,6 +210,10 @@ jobs:
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache
 
+  deploy-to-droplet:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
       - name: Deploy to DigitalOcean Droplet
         uses: appleboy/ssh-action@master
         with:
@@ -224,13 +227,14 @@ jobs:
             chmod +x entrypoint.sh
 
             export DO_DOMAIN="${{ secrets.DO_DOMAIN }}"
-            export DO_ACCESS_TOKEN="${{ secrets.DO_ACCESS_TOKEN }}"
             export DO_REGISTRY="${{ secrets.DO_REGISTRY }}"
+            export DO_ACCESS_TOKEN="${{ secrets.DO_ACCESS_TOKEN }}"
             export CONTAINER_NAME="${{ secrets.CONTAINER_NAME }}"
             export SSL_CERT_PATH="${{ secrets.SSL_CERT_PATH }}"
             export SSL_KEY_PATH="${{ secrets.SSL_KEY_PATH }}"
 
             ./entrypoint.sh
+
 ```
 
 **Note on SSL Paths**: If `SSL_CERT_PATH` and `SSL_KEY_PATH` are used, ensure these certificate files are present on the server/runner where the Docker commands are executed. For GitHub-hosted runners, this might involve securely downloading them as a step. For self-hosted runners, they can be pre-existing paths.
