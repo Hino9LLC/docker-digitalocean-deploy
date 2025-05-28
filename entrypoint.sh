@@ -181,6 +181,12 @@ run_container() {
         "--security-opt" "no-new-privileges:true"
     )
 
+    # Add support for .env file if the environment variable is set
+    if [ -n "${ENV_FILE_PATH:-}" ] && [ -f "$ENV_FILE_PATH" ]; then
+        echo "📄 Adding .env file from $ENV_FILE_PATH to container"
+        docker_args+=("--env-file" "$ENV_FILE_PATH")
+    fi
+
     # Only expose ports if SSL is properly configured
     if validate_ssl_config; then
         echo "🔌 Exposing ports for SSL-enabled container"

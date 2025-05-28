@@ -143,6 +143,10 @@ The script relies on several environment variables for its configuration. These 
     * *Example*: `/etc/letsencrypt/live/example.com/privkey.pem`
     * *Note*: Must be a valid private key file in PEM format
     * *Note*: Must be an absolute path
+* **`ENV_FILE_PATH`**: Optional path to a `.env` file with environment variables for the container.
+    * *Default*: `""` (empty)
+    * *Example*: `/path/to/your/.env`
+    * *Note*: If set, the script will pass this file to the container. The file should exist and be readable.
 
 ## 📜 Workflow Breakdown
 
@@ -238,6 +242,33 @@ jobs:
 ```
 
 **Note on SSL Paths**: If `SSL_CERT_PATH` and `SSL_KEY_PATH` are used, ensure these certificate files are present on the server/runner where the Docker commands are executed. For GitHub-hosted runners, this might involve securely downloading them as a step. For self-hosted runners, they can be pre-existing paths.
+
+## Using a .env File
+
+To pass environment variables to your container using a `.env` file, you can specify the file's location using the `ENV_FILE_PATH` environment variable. This is optional, and if not set, the script will not include a `.env` file.
+
+### Steps:
+
+1. Create a `.env` file with key-value pairs of environment variables. For example:
+
+   ```env
+   DATABASE_URL=postgres://user:password@localhost:5432/dbname
+   API_KEY=your-api-key
+   ```
+
+2. Set the `ENV_FILE_PATH` environment variable to the path of your `.env` file before running the script. For example:
+
+   ```bash
+   export ENV_FILE_PATH=/path/to/your/.env
+   ```
+
+3. Run the deployment script as usual. The `.env` file will be passed to the container if the `ENV_FILE_PATH` variable is set and the file exists.
+
+4. Verify the environment variables inside the container by running:
+
+   ```bash
+   docker exec -it <container_name> env
+   ```
 
 ## 🛠️ Key Functions Explained
 
