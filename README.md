@@ -81,6 +81,7 @@ This script automates the deployment of Docker containers to DigitalOcean's Cont
     * When SSL is configured, exposes HTTP/HTTPS ports
     * When SSL is not configured, uses internal network only
     * SSL configuration is validated when provided
+    * Deployment will fail if SSL validation fails (only runs without SSL if `DO_DOMAIN`, `SSL_CERT_PATH`, `SSL_KEY_PATH` are not provided)
     * Modern SSL validation approach:
         * Tries OpenSSL pkey first (supports various key formats)
         * Falls back to RSA validation if needed
@@ -156,7 +157,7 @@ The script executes the following steps in order:
     * This `:previous` tag is then pushed to the DigitalOcean Container Registry.
 6.  **Start New Temporary Container**:
     * A new container is started with the name `${CONTAINER_NAME}-new` using the `latest` image.
-    * If SSL variables (`DO_DOMAIN`, `SSL_CERT_PATH`, `SSL_KEY_PATH`) are set, it's configured with temporary non-standard ports (e.g., 8080 for HTTP, 8443 for HTTPS) and SSL volume mounts. Otherwise, ports are not exposed for this temporary container.
+    * If SSL variables (`DO_DOMAIN`, `SSL_CERT_PATH`, `SSL_KEY_PATH`) are set, it's configured with temporary non-standard ports (e.g., 8080 for HTTP, 8443 for HTTPS) and SSL volume mounts. Deployment will fail if SSL validation fails. Otherwise, ports are not exposed for this temporary container.
 7.  **Wait for New Temporary Container Health**: The script polls the health status of `${CONTAINER_NAME}-new` until it's `healthy` or a timeout is reached.
     * If it fails to become healthy, temporary containers are cleaned up, and the script exits with an error.
 8.  **Switch to New Container**: Stops and removes the old production container.
