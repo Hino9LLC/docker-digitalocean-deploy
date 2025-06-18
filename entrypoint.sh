@@ -99,6 +99,37 @@ validate_ssl_config() {
     return 0
 }
 
+# Function to process environment variables
+process_app_env_vars() {
+    if [ -z "${APP_ENV_VARS_STRING:-}" ]; then
+        echo "ℹ️ No environment variables provided"
+        return 0
+    fi
+
+    echo "🔍 Validating environment variables..."
+
+    # Initialize array for Docker environment variables
+    APP_ENV_VARS_ARRAY=()
+
+    # Split on pipe and process each variable
+    IFS='|' read -ra ENV_VARS <<< "$APP_ENV_VARS_STRING"
+    for var in "${ENV_VARS[@]}"; do
+        if [ -n "$var" ]; then  # Skip empty entries
+            if [[ "$var" =~ ^[A-Za-z_][A-Za-z0-9_]*=.*$ ]]; then
+                echo "✅ Valid environment variable: ${var%%=*}"
+                # Add to Docker environment variables array
+                APP_ENV_VARS_ARRAY+=("-e" "$var")
+            else
+                echo "❌ Invalid environment variable format: $var"
+                echo "   Must be in format KEY=VALUE"
+                exit 1
+            fi
+        fi
+    done
+
+    echo "✅ Processed ${#APP_ENV_VARS_ARRAY[@]} environment variables"
+}
+
 # Function to extract JSON value with jq fallback to grep/sed
 extract_json_value() {
     local json="$1"
@@ -485,31 +516,10 @@ rollback() {
 }
 
 # Step 1: Process environment variables
-APP_ENV_VARS_ARRAY=()
-if [ -n "$APP_ENV_VARS_STRING" ]; then
-    echo "🔧 Processing environment variables..."
-    # Use newline as delimiter
-    while IFS= read -r line; do
-        # Skip empty lines
-        if [ -z "$line" ]; then
-            continue
-        fi
-        # Trim leading/trailing whitespace
-        line="${line#"${line%%[![:space:]]*}"}"
-        line="${line%"${line##*[![:space:]]}"}"
-        # Skip if empty after trimming
-        if [ -z "$line" ]; then
-            continue
-        fi
-        # Validate the format (should be KEY=VALUE)
-        if [[ ! "$line" =~ ^[A-Za-z0-9_]+=.+$ ]]; then
-            echo "⚠️ Warning: Skipping invalid environment variable format: $line"
-            continue
-        fi
-        # Ensure each item is correctly prefixed with -e
-        APP_ENV_VARS_ARRAY+=("-e" "$line")
-    done <<<"$APP_ENV_VARS_STRING"
-    echo "✅ Processed ${#APP_ENV_VARS_ARRAY[@]} environment variables"
+echo "🚀 Step 1: Processing environment variables..."
+if ! process_app_env_vars; then
+    echo "❌ Failed to process environment variables. Exiting."
+    exit 1
 fi
 
 # Step 2: Check DigitalOcean connectivity

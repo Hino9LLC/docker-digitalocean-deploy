@@ -80,13 +80,13 @@ jobs:
             APP_ENV_VARS_STRING=""
 
             # Database Configuration
-            APP_ENV_VARS_STRING+="DATABASE_URL=${{ secrets.DATABASE_URL }}\n"
-            APP_ENV_VARS_STRING+="DB_POOL_SIZE=20\n"
-            APP_ENV_VARS_STRING+="DB_TIMEOUT=30\n"
+            APP_ENV_VARS_STRING+="DATABASE_URL=${{ secrets.DATABASE_URL }}|"
+            APP_ENV_VARS_STRING+="DB_POOL_SIZE=20|"
+            APP_ENV_VARS_STRING+="DB_TIMEOUT=30|"
 
             # Feature Flags
-            APP_ENV_VARS_STRING+="ENABLE_CACHE=true\n"
-            APP_ENV_VARS_STRING+="ENABLE_RATE_LIMIT=true\n"
+            APP_ENV_VARS_STRING+="ENABLE_CACHE=true|"
+            APP_ENV_VARS_STRING+="ENABLE_RATE_LIMIT=true|"
             APP_ENV_VARS_STRING+="ENABLE_ANALYTICS=true"
 
             export APP_ENV_VARS_STRING

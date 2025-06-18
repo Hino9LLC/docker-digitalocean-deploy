@@ -138,25 +138,26 @@ The script relies on several environment variables for its configuration. These 
     * *Note*: Must be an absolute path
 * **`APP_ENV_VARS_STRING`**: Environment variables to pass to the container.
     * *Default*: `""` (empty)
-    * *Format*: String concatenation with newline delimiters
+    * *Format*: Pipe-delimited string of KEY=VALUE pairs, built with string concatenation
     * *Example*:
       ```yaml
       APP_ENV_VARS_STRING=""
 
       # Database Configuration
-      APP_ENV_VARS_STRING+="DATABASE_URL=${{ secrets.DATABASE_URL }}\n"
-      APP_ENV_VARS_STRING+="DB_POOL_SIZE=20\n"
-      APP_ENV_VARS_STRING+="DB_TIMEOUT=30\n"
+      APP_ENV_VARS_STRING+="DATABASE_URL=${{ secrets.DATABASE_URL }}|"
+      APP_ENV_VARS_STRING+="DB_POOL_SIZE=20|"
+      APP_ENV_VARS_STRING+="DB_TIMEOUT=30|"
 
       # Feature Flags
-      APP_ENV_VARS_STRING+="ENABLE_CACHE=true\n"
-      APP_ENV_VARS_STRING+="ENABLE_RATE_LIMIT=true\n"
+      APP_ENV_VARS_STRING+="ENABLE_CACHE=true|"
+      APP_ENV_VARS_STRING+="ENABLE_RATE_LIMIT=true|"
       APP_ENV_VARS_STRING+="ENABLE_ANALYTICS=true"
       ```
     * *Note*: Only the variables explicitly listed here will be passed to the container
     * *Note*: Each variable should be in the format `KEY=VALUE`
-    * *Note*: Comments and empty lines are supported for organization
     * *Note*: Variables are validated for proper format and empty values are skipped
+    * *Warning*: The pipe character (`|`) is used as a delimiter and MUST NOT appear in any environment variable values
+    * *Warning*: If a pipe character is found in any value, the deployment will fail with an error
     * *Note*: See `sample_deploy.yml` for a comprehensive example
 
 ## 📜 Workflow Breakdown
@@ -238,31 +239,15 @@ jobs:
             export HEALTH_CHECK_CMD="curl -f http://localhost:8000/health || exit 1"
 
             # Application environment variables
-            APP_ENV_VARS_STRING=""
-            APP_ENV_VARS_STRING+="DATABASE_URL=${{ secrets.DATABASE_URL }}\n"
-            APP_ENV_VARS_STRING+="DB_POOL_SIZE=20\n"
-            APP_ENV_VARS_STRING+="DB_TIMEOUT=30\n"
-
-            # Redis Configuration
-            APP_ENV_VARS_STRING+="REDIS_HOST=${{ secrets.REDIS_HOST }}\n"
-            APP_ENV_VARS_STRING+="REDIS_PORT=${{ secrets.REDIS_PORT }}\n"
-            APP_ENV_VARS_STRING+="REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}\n"
-
-            # Application Settings
-            APP_ENV_VARS_STRING+="NODE_ENV=production\n"
-            APP_ENV_VARS_STRING+="PORT=8000\n"
-            APP_ENV_VARS_STRING+="LOG_LEVEL=info\n"
-            APP_ENV_VARS_STRING+="API_VERSION=v1\n"
-            
-            # Security
-            APP_ENV_VARS_STRING+="JWT_SECRET=${{ secrets.JWT_SECRET }}\n"
-            APP_ENV_VARS_STRING+="API_KEY=${{ secrets.API_KEY }}\n"
-            APP_ENV_VARS_STRING+="CORS_ORIGIN=https://example.com\n"
-            
-            # Feature Flags
-            APP_ENV_VARS_STRING+="ENABLE_CACHE=true\n"
-            APP_ENV_VARS_STRING+="ENABLE_RATE_LIMIT=true\n"
-            APP_ENV_VARS_STRING+="ENABLE_ANALYTICS=true\n"
+            ENV_VARS=(
+              "DATABASE_URL=${{ secrets.DATABASE_URL }}"
+              "DB_POOL_SIZE=20"
+              "DB_TIMEOUT=30"
+              "ENABLE_CACHE=true"
+              "ENABLE_RATE_LIMIT=true"
+              "ENABLE_ANALYTICS=true"
+            )
+            APP_ENV_VARS_STRING=$(IFS=$'\n'; echo "${ENV_VARS[*]}")
 
             export APP_ENV_VARS_STRING
 
