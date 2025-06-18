@@ -16,6 +16,20 @@ done
 # Set default health check command if not specified
 HEALTH_CHECK_CMD=${HEALTH_CHECK_CMD:-"curl -f http://localhost/ || exit 1"}
 
+
+# Validate required application environment variables
+validate_required_app_vars() {
+    IFS=',' read -ra VARS <<< "${REQUIRED_APP_VARS:-}"
+    for var in "${VARS[@]}"; do
+        if [ -z "${!var:-}" ]; then
+            echo "❌ Error: Required application environment variable '$var' is not set."
+            return 1
+        fi
+    done
+    echo "✅ All required application environment variables are set."
+    return 0
+}
+
 # Function to validate SSL configuration
 validate_ssl_config() {
     # If any SSL-related variable is not set, SSL is not being used
@@ -99,37 +113,6 @@ validate_ssl_config() {
     return 0
 }
 
-# Function to process environment variables
-process_app_env_vars() {
-    if [ -z "${APP_ENV_VARS_STRING:-}" ]; then
-        echo "ℹ️ No environment variables provided"
-        return 0
-    fi
-
-    echo "🔍 Validating environment variables..."
-
-    # Initialize array for Docker environment variables
-    APP_ENV_VARS_ARRAY=()
-
-    # Split on pipe and process each variable
-    IFS='|' read -ra ENV_VARS <<< "$APP_ENV_VARS_STRING"
-    for var in "${ENV_VARS[@]}"; do
-        if [ -n "$var" ]; then  # Skip empty entries
-            if [[ "$var" =~ ^[A-Za-z_][A-Za-z0-9_]*=.*$ ]]; then
-                echo "✅ Valid environment variable: ${var%%=*}"
-                # Add to Docker environment variables array
-                APP_ENV_VARS_ARRAY+=("-e" "$var")
-            else
-                echo "❌ Invalid environment variable format: $var"
-                echo "   Must be in format KEY=VALUE"
-                exit 1
-            fi
-        fi
-    done
-
-    echo "✅ Processed ${#APP_ENV_VARS_ARRAY[@]} environment variables"
-}
-
 # Function to extract JSON value with jq fallback to grep/sed
 extract_json_value() {
     local json="$1"
@@ -182,13 +165,12 @@ run_container() {
     local container_name=$1
     local http_port=$2
     local https_port=$3
-    shift 3
-    local extra_args=("$@")
     local docker_args=()
 
-    # Loop through extra_args and add them to docker_args
-    for arg in "${extra_args[@]}"; do
-        docker_args+=("$arg")
+    # Add all required app env vars as -e flags
+    IFS=',' read -ra VARS <<< "${REQUIRED_APP_VARS:-}"
+    for var in "${VARS[@]}"; do
+        docker_args+=("-e" "${var}=${!var}")
     done
 
     echo "🚀 Starting container $container_name..."
@@ -517,8 +499,8 @@ rollback() {
 
 # Step 1: Process environment variables
 echo "🚀 Step 1: Processing environment variables..."
-if ! process_app_env_vars; then
-    echo "❌ Failed to process environment variables. Exiting."
+if ! validate_required_app_vars; then
+    echo "❌ Failed to validate required application environment variables. Exiting."
     exit 1
 fi
 
@@ -556,10 +538,10 @@ save_previous
 # Step 7: Start new container with temporary name and ports
 if validate_ssl_config; then
     echo "🚀 Starting new container with SSL configuration"
-    run_container "${CONTAINER_NAME}-new" 8080 8443 "${APP_ENV_VARS_ARRAY[@]}"
+    run_container "${CONTAINER_NAME}-new" 8080 8443
 else
     echo "⚠️ Starting new container without SSL configuration"
-    run_container "${CONTAINER_NAME}-new" 0 0 "${APP_ENV_VARS_ARRAY[@]}"
+    run_container "${CONTAINER_NAME}-new" 0 0
 fi
 
 # Step 8: Wait for new container to be healthy

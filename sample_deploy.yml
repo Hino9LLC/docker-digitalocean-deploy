@@ -70,25 +70,15 @@ jobs:
             cd docker-digitalocean-deploy
             chmod +x entrypoint.sh
 
-            # Deploy environment variables for entrypoint.sh
+            # Environment variables for entrypoint.sh
             export DO_REGISTRY="${{ secrets.DO_REGISTRY }}"
             export DO_ACCESS_TOKEN="${{ secrets.DO_ACCESS_TOKEN }}"
             export CONTAINER_NAME="${{ secrets.CONTAINER_NAME }}"
             export HEALTH_CHECK_CMD="curl -f http://localhost:8000/health || exit 1"
 
-            # Application environment variables
-            APP_ENV_VARS_STRING=""
-
-            # Database Configuration
-            APP_ENV_VARS_STRING+="DATABASE_URL=${{ secrets.DATABASE_URL }}|"
-            APP_ENV_VARS_STRING+="DB_POOL_SIZE=20|"
-            APP_ENV_VARS_STRING+="DB_TIMEOUT=30|"
-
-            # Feature Flags
-            APP_ENV_VARS_STRING+="ENABLE_CACHE=true|"
-            APP_ENV_VARS_STRING+="ENABLE_RATE_LIMIT=true|"
-            APP_ENV_VARS_STRING+="ENABLE_ANALYTICS=true"
-
-            export APP_ENV_VARS_STRING
+            # Environment variables for the container
+            export DATABASE_URL="${{ secrets.DATABASE_URL }}"
+            export LOG_LEVEL="info"
+            export REQUIRED_APP_VARS="DATABASE_URL,LOG_LEVEL"
 
             ./entrypoint.sh

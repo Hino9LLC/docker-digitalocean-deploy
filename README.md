@@ -136,29 +136,16 @@ The script relies on several environment variables for its configuration. These 
     * *Example*: `/etc/letsencrypt/live/example.com/privkey.pem`
     * *Note*: Must be a valid private key file in PEM format
     * *Note*: Must be an absolute path
-* **`APP_ENV_VARS_STRING`**: Environment variables to pass to the container.
-    * *Default*: `""` (empty)
-    * *Format*: Pipe-delimited string of KEY=VALUE pairs, built with string concatenation
-    * *Example*:
-      ```yaml
-      APP_ENV_VARS_STRING=""
+* **`REQUIRED_APP_VARS`**: Comma-separated list of required application environment variables. The script will check that each variable in this list is set before proceeding.
+    * *Example*: `DATABASE_URL,LOG_LEVEL`
 
-      # Database Configuration
-      APP_ENV_VARS_STRING+="DATABASE_URL=${{ secrets.DATABASE_URL }}|"
-      APP_ENV_VARS_STRING+="DB_POOL_SIZE=20|"
-      APP_ENV_VARS_STRING+="DB_TIMEOUT=30|"
+All application environment variables should be exported individually, for example:
 
-      # Feature Flags
-      APP_ENV_VARS_STRING+="ENABLE_CACHE=true|"
-      APP_ENV_VARS_STRING+="ENABLE_RATE_LIMIT=true|"
-      APP_ENV_VARS_STRING+="ENABLE_ANALYTICS=true"
-      ```
-    * *Note*: Only the variables explicitly listed here will be passed to the container
-    * *Note*: Each variable should be in the format `KEY=VALUE`
-    * *Note*: Variables are validated for proper format and empty values are skipped
-    * *Warning*: The pipe character (`|`) is used as a delimiter and MUST NOT appear in any environment variable values
-    * *Warning*: If a pipe character is found in any value, the deployment will fail with an error
-    * *Note*: See `sample_deploy.yml` for a comprehensive example
+```bash
+export DATABASE_URL="postgres://user:pass@host:5432/db"
+export LOG_LEVEL="info"
+export REQUIRED_APP_VARS="DATABASE_URL,LOG_LEVEL"
+```
 
 ## 📜 Workflow Breakdown
 
@@ -232,24 +219,16 @@ jobs:
             cd docker-digitalocean-deploy
             chmod +x entrypoint.sh
 
-            # Deploy environment variables for entrypoint.sh
+            # Environment variables for entrypoint.sh
             export DO_REGISTRY="${{ secrets.DO_REGISTRY }}"
             export DO_ACCESS_TOKEN="${{ secrets.DO_ACCESS_TOKEN }}"
             export CONTAINER_NAME="${{ secrets.CONTAINER_NAME }}"
             export HEALTH_CHECK_CMD="curl -f http://localhost:8000/health || exit 1"
 
-            # Application environment variables
-            ENV_VARS=(
-              "DATABASE_URL=${{ secrets.DATABASE_URL }}"
-              "DB_POOL_SIZE=20"
-              "DB_TIMEOUT=30"
-              "ENABLE_CACHE=true"
-              "ENABLE_RATE_LIMIT=true"
-              "ENABLE_ANALYTICS=true"
-            )
-            APP_ENV_VARS_STRING=$(IFS=$'\n'; echo "${ENV_VARS[*]}")
-
-            export APP_ENV_VARS_STRING
+            # Environment variables for the container
+            export DATABASE_URL="${{ secrets.DATABASE_URL }}"
+            export LOG_LEVEL="info"
+            export REQUIRED_APP_VARS="DATABASE_URL,LOG_LEVEL"
 
             ./entrypoint.sh
 ```
