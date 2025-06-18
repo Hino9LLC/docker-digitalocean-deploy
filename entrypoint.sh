@@ -17,16 +17,15 @@ done
 HEALTH_CHECK_CMD=${HEALTH_CHECK_CMD:-"curl -f http://localhost/ || exit 1"}
 
 
-# Validate required application environment variables
-validate_required_app_vars() {
-    IFS=',' read -ra VARS <<< "${REQUIRED_APP_VARS:-}"
+# Validate container environment variables (if any)
+validate_container_env_vars() {
+    IFS=',' read -ra VARS <<< "${CONTAINER_ENV_VARS:-}"
     for var in "${VARS[@]}"; do
         if [ -z "${!var:-}" ]; then
-            echo "❌ Error: Required application environment variable '$var' is not set."
-            return 1
+            echo "⚠️ Notice: Container environment variable '$var' is not set. The application may have defaults or handle this gracefully."
         fi
     done
-    echo "✅ All required application environment variables are set."
+    echo "✅ Container environment variable check complete."
     return 0
 }
 
@@ -167,8 +166,8 @@ run_container() {
     local https_port=$3
     local docker_args=()
 
-    # Add all required app env vars as -e flags
-    IFS=',' read -ra VARS <<< "${REQUIRED_APP_VARS:-}"
+    # Add all container environment variables as -e flags
+    IFS=',' read -ra VARS <<< "${CONTAINER_ENV_VARS:-}"
     for var in "${VARS[@]}"; do
         docker_args+=("-e" "${var}=${!var}")
     done
@@ -344,37 +343,6 @@ cleanup_images() {
     docker images registry.digitalocean.com/${DO_REGISTRY}/${CONTAINER_NAME} --format "{{.Repository}}:{{.Tag}}"
 }
 
-# Function to check doctl connectivity with retries
-check_doctl_connectivity() {
-    local max_attempts=3
-    local attempt=1
-    local wait_time=5
-
-    echo "🔍 Checking DigitalOcean API connectivity..."
-
-    while [ $attempt -le $max_attempts ]; do
-        if doctl account get >/dev/null 2>&1; then
-            echo "✅ DigitalOcean API is accessible"
-            return 0
-        fi
-
-        echo "⚠️ Attempt $attempt/$max_attempts: DigitalOcean API is not accessible"
-        if [ $attempt -lt $max_attempts ]; then
-            echo "⏳ Waiting ${wait_time} seconds before retry..."
-            sleep $wait_time
-            wait_time=$((wait_time * 2)) # Exponential backoff
-        fi
-        attempt=$((attempt + 1))
-    done
-
-    echo "❌ Failed to connect to DigitalOcean API after $max_attempts attempts"
-    echo "Please check:"
-    echo "1. Your internet connection"
-    echo "2. DigitalOcean API status (https://status.digitalocean.com)"
-    echo "3. Your DO_ACCESS_TOKEN is valid"
-    return 1
-}
-
 # Function to pull image with retries
 pull_image_with_retry() {
     local image=$1
@@ -499,25 +467,19 @@ rollback() {
 
 # Step 1: Process environment variables
 echo "🚀 Step 1: Processing environment variables..."
-if ! validate_required_app_vars; then
-    echo "❌ Failed to validate required application environment variables. Exiting."
+if ! validate_container_env_vars; then
+    echo "❌ Failed to check container environment variables. Exiting."
     exit 1
 fi
 
-# Step 2: Check DigitalOcean connectivity
-if ! check_doctl_connectivity; then
-    echo "❌ Cannot proceed without DigitalOcean API access"
-    exit 1
-fi
-
-# Step 3: Login to DigitalOcean Container Registry
+# Step 2: Login to DigitalOcean Container Registry
 echo "🔑 Logging into DigitalOcean Container Registry..."
 if ! echo "${DO_ACCESS_TOKEN}" | docker login registry.digitalocean.com -u "${DO_ACCESS_TOKEN}" --password-stdin; then
     echo "❌ Failed to login to DigitalOcean Container Registry"
     exit 1
 fi
 
-# Step 4: Pull the latest image with retries
+# Step 3: Pull the latest image with retries
 echo "📥 Pulling latest image from registry..."
 if ! pull_image_with_retry "registry.digitalocean.com/${DO_REGISTRY}/${CONTAINER_NAME}:latest"; then
     echo "❌ Error: Failed to pull image registry.digitalocean.com/${DO_REGISTRY}/${CONTAINER_NAME}:latest"
@@ -529,13 +491,13 @@ if ! pull_image_with_retry "registry.digitalocean.com/${DO_REGISTRY}/${CONTAINER
     exit 1
 fi
 
-# Step 5: Clean up any existing temporary containers
+# Step 4: Clean up any existing temporary containers
 cleanup_temp_containers
 
-# Step 6: Save current container as previous before starting new one
+# Step 5: Save current container as previous before starting new one
 save_previous
 
-# Step 7: Start new container with temporary name and ports
+# Step 6: Start new container with temporary name and ports
 if validate_ssl_config; then
     echo "🚀 Starting new container with SSL configuration"
     run_container "${CONTAINER_NAME}-new" 8080 8443
@@ -544,20 +506,20 @@ else
     run_container "${CONTAINER_NAME}-new" 0 0
 fi
 
-# Step 8: Wait for new container to be healthy
+# Step 7: Wait for new container to be healthy
 if ! wait_for_container "${CONTAINER_NAME}-new"; then
     echo "❌ Cleaning up failed container..."
     cleanup_temp_containers
     exit 1
 fi
 
-# Step 9: Switch to new container
+# Step 8: Switch to new container
 echo "🔄 Stopping old container and renaming new container..."
 OLD_CONTAINER_TIME_OF_DEATH=$(date +%s)
 docker stop "${CONTAINER_NAME}" || true
 docker rm -f "${CONTAINER_NAME}" || true
 
-# Step 10: Start production container directly (skip the -new container)
+# Step 9: Start production container directly (skip the -new container)
 if validate_ssl_config; then
     echo "🚀 Starting production container with SSL configuration"
     run_container "${CONTAINER_NAME}" 80 443
@@ -566,19 +528,19 @@ else
     run_container "${CONTAINER_NAME}" 0 0 # Ports won't be used
 fi
 
-# Step 11: Wait for production container to be healthy
+# Step 10: Wait for production container to be healthy
 if ! wait_for_container "${CONTAINER_NAME}"; then
     echo "❌ Failed to start production container. Rolling back..."
     rollback
     exit 1
 fi
 
-# Step 12: Calculate downtime
+# Step 11: Calculate downtime
 NEW_CONTAINER_EPOCH=$(docker inspect --format='{{.State.StartedAt}}' "${CONTAINER_NAME}" | date -f - +%s)
 DOWNTIME=$((NEW_CONTAINER_EPOCH - OLD_CONTAINER_TIME_OF_DEATH))
 echo "⏱️ Total downtime: ${DOWNTIME}s"
 
-# Step 13: Image housekeeping
+# Step 12: Image housekeeping
 cleanup_temp_containers
 cleanup_images
 

@@ -19,6 +19,13 @@
   - [🛠️ Key Functions Explained](#️-key-functions-explained)
   - [⚠️ Error Handling and Rollback](#️-error-handling-and-rollback)
   - [🎨 Customization](#-customization)
+  - [🔧 Troubleshooting](#-troubleshooting)
+    - [Common Issues](#common-issues)
+    - [Getting Help](#getting-help)
+  - [🤝 Contributing](#-contributing)
+    - [Development Setup](#development-setup)
+    - [Code Style](#code-style)
+  - [📄 License](#-license)
 
 ## 🚀 Quick Start
 
@@ -121,7 +128,7 @@ The script relies on several environment variables for its configuration. These 
 
 * **`HEALTH_CHECK_CMD`**: The command used by Docker to check the container's health.
     * *Default*: `"curl -f http://localhost/ || exit 1"`
-    * *Example*: `"curl -f http://localhost:3000/healthz || exit 1"`
+    * *Example*: `"curl -f http://localhost:3000/health || exit 1"`
 * **`DO_DOMAIN`**: The domain name for your application. Required only if using SSL.
     * *Default*: `""` (empty)
     * *Example*: `example.com`
@@ -136,49 +143,44 @@ The script relies on several environment variables for its configuration. These 
     * *Example*: `/etc/letsencrypt/live/example.com/privkey.pem`
     * *Note*: Must be a valid private key file in PEM format
     * *Note*: Must be an absolute path
-* **`REQUIRED_APP_VARS`**: Comma-separated list of required application environment variables. The script will check that each variable in this list is set before proceeding.
-    * *Example*: `DATABASE_URL,LOG_LEVEL`
-
-All application environment variables should be exported individually, for example:
-
-```bash
-export DATABASE_URL="postgres://user:pass@host:5432/db"
-export LOG_LEVEL="info"
-export REQUIRED_APP_VARS="DATABASE_URL,LOG_LEVEL"
-```
+* **`CONTAINER_ENV_VARS`**: (Optional) A comma-separated list of environment variable names that will be injected into the container if set in the environment. Use this to ensure your application receives the environment variables it needs, but note that your app may have reasonable defaults if some are not set.
+    * Each variable listed will be injected into the container at runtime using Docker's `-e` flag (e.g., `-e VAR_NAME=VALUE`). Only variables that are set in the environment will be injected.
+    * This is the standard and secure way to provide configuration and secrets to containers, as the values are not stored in the image or written to disk by this script.
+    * **Security Note:** Environment variables can be accessed by any process running inside the container. Avoid including highly sensitive secrets unless your container is trusted.
+    * *Default*: `""` (empty)
+    * *Example*: DATABASE_URL,LOG_LEVEL
 
 ## 📜 Workflow Breakdown
 
 The script executes the following steps in order:
 
-1.  **Process Environment Variables**: Validates and processes the `APP_ENV_VARS_STRING` into Docker environment arguments.
-2.  **Check DigitalOcean Connectivity**: Verifies API access before proceeding.
-3.  **Login to DigitalOcean Registry**: Authenticates Docker with your `DO_ACCESS_TOKEN`.
-4.  **Pull Latest Image**: Pulls `registry.digitalocean.com/${DO_REGISTRY}/${CONTAINER_NAME}:latest` with retry logic.
-5.  **Cleanup Temporary Containers**: Stops and removes any leftover containers named `${CONTAINER_NAME}-new`.
-6.  **Save Previous Image**:
+1.  **Process Environment Variables**: Checks and prints notices for any container environment variables listed in `CONTAINER_ENV_VARS` that are not set.
+2.  **Login to DigitalOcean Registry**: Authenticates Docker with your `DO_ACCESS_TOKEN`.
+3.  **Pull Latest Image**: Pulls `registry.digitalocean.com/${DO_REGISTRY}/${CONTAINER_NAME}:latest` with retry logic.
+4.  **Cleanup Temporary Containers**: Stops and removes any leftover containers named `${CONTAINER_NAME}-new`.
+5.  **Save Previous Image**:
     * If a container named `${CONTAINER_NAME}` is running, its image is tagged as `registry.digitalocean.com/${DO_REGISTRY}/${CONTAINER_NAME}:previous`.
     * This `:previous` tag is then pushed to the DigitalOcean Container Registry.
-7.  **Start New Temporary Container**:
+6.  **Start New Temporary Container**:
     * A new container is started with the name `${CONTAINER_NAME}-new` using the `latest` image.
     * If SSL variables (`DO_DOMAIN`, `SSL_CERT_PATH`, `SSL_KEY_PATH`) are set, it's configured with temporary non-standard ports (e.g., 8080 for HTTP, 8443 for HTTPS) and SSL volume mounts. Deployment will fail if SSL validation fails. Otherwise, ports are not exposed for this temporary container.
-8.  **Wait for New Temporary Container Health**: The script polls the health status of `${CONTAINER_NAME}-new` until it's `healthy` or a timeout is reached.
-    * If it fails to become healthy, temporary containers are cleaned up, and the script exits with an error.
-9.  **Switch to New Container**: Stops and removes the old production container.
-10. **Start Production Container**:
+7.  **Wait for New Temporary Container Health**: The script polls the health status of `${CONTAINER_NAME}-new` until it's `healthy` or a timeout is reached.
+    * If it fails to become healthy, temporary containers are cleaned up, and the deployment is aborted.
+8.  **Switch to New Container**: Stops and removes the old production container.
+9.  **Start Production Container**:
     * The `latest` image is started as the main production container with the name `${CONTAINER_NAME}`.
     * If SSL variables are set, it's configured with standard ports (80 for HTTP, 443 for HTTPS) and SSL volume mounts. Otherwise, ports are not exposed directly by this script (assuming a reverse proxy might be in use or no external access is needed).
-11. **Wait for Production Container Health**: The script polls the health status of `${CONTAINER_NAME}`.
+10. **Wait for Production Container Health**: The script polls the health status of `${CONTAINER_NAME}`.
     * If it fails to become healthy, the `rollback` function is triggered.
-12. **Calculate Downtime**: Calculates the approximate downtime between stopping the old container and the new production container becoming healthy.
-13. **Image Housekeeping**:
+11. **Calculate Downtime**: Calculates the approximate downtime between stopping the old container and the new production container becoming healthy.
+12. **Image Housekeeping**:
     * Calls `cleanup_temp_containers` again.
     * Calls `cleanup_images` to remove old tags (except `latest` and `previous`) from the DigitalOcean Container Registry and prune local dangling images.
     * Prints a "Deployment complete!" message.
 
 ## 📦 Usage in GitHub Actions
 
-Here's an example of how to use this `entrypoint.sh` script in a GitHub Actions workflow. For a complete example with environment variables, see `sample_deploy.yml`:
+Here's an example of how to use this `entrypoint.sh` script in a GitHub Actions workflow:
 
 ```yaml
 name: Build and Deploy to DigitalOcean
@@ -189,18 +191,30 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      # ... test steps ...
-
   build-and-push:
-    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # ... build and push steps ...
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to DigitalOcean Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: registry.digitalocean.com
+          username: ${{ secrets.DO_ACCESS_TOKEN }}
+          password: ${{ secrets.DO_ACCESS_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            registry.digitalocean.com/${{ secrets.DO_REGISTRY }}/${{ secrets.CONTAINER_NAME }}:latest
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache
 
   deploy-to-droplet:
     needs: build-and-push
@@ -213,7 +227,6 @@ jobs:
           username: ${{ secrets.DO_USERNAME }}
           key: ${{ secrets.DO_SSH_KEY }}
           script: |
-            # Clone the deploy helper script (your entrypoint.sh lives here)
             rm -rf docker-digitalocean-deploy
             git clone https://github.com/Hino9LLC/docker-digitalocean-deploy.git
             cd docker-digitalocean-deploy
@@ -228,12 +241,13 @@ jobs:
             # Environment variables for the container
             export DATABASE_URL="${{ secrets.DATABASE_URL }}"
             export LOG_LEVEL="info"
-            export REQUIRED_APP_VARS="DATABASE_URL,LOG_LEVEL"
+            export CONTAINER_ENV_VARS="DATABASE_URL,LOG_LEVEL"
 
             ./entrypoint.sh
+
 ```
 
-For a complete example with all environment variables and configuration options, see `sample_deploy.yml` in the repository.
+**Note on SSL Paths**: If `SSL_CERT_PATH` and `SSL_KEY_PATH` are used, ensure these certificate files are present on the server/runner where the Docker commands are executed. For GitHub-hosted runners, this might involve securely downloading them as a step. For self-hosted runners, they can be pre-existing paths.
 
 ## 🛠️ Key Functions Explained
 
@@ -294,7 +308,107 @@ Within the `entrypoint.sh` script:
 * **Health Check**: Modify the `HEALTH_CHECK_CMD` environment variable for your application's specific health endpoint and criteria.
     ```bash
     # Example:
-    # HEALTH_CHECK_CMD="curl --fail http://localhost:8000/health_status || exit 1"
+    # HEALTH_CHECK_CMD="curl --fail http://localhost:8000/health || exit 1"
     ```
 * **Ports**: The script uses standard 80/443 for production SSL. If your application uses different internal ports, you'll need to adjust the `-p` mappings within the `run_container` function (inside `entrypoint.sh`) for the final production container start, or ensure your container correctly exposes port 80/443 internally. The temporary container uses 8080/8443 to avoid conflicts.
-* **Docker Run Options**: The `run_container`
+* **Docker Run Options**: The `run_container` function in `entrypoint.sh` has many common Docker options (logging, ulimits, restart policy). You can extend this function to add more specific options your application might require.
+* **Image Cleanup Logic**: The `cleanup_images` function can be adapted if you have a different tag retention policy.
+
+## 🔧 Troubleshooting
+
+### Common Issues
+
+1. **Container Health Check Fails**
+   - Verify your application is listening on the correct port
+   - Check if the health check endpoint is accessible
+   - Review container logs for application errors
+
+2. **SSL Configuration Issues**
+   - SSL is optional - containers can run without it using internal network only
+   - If using SSL, ensure all SSL-related environment variables are set (`DO_DOMAIN`, `SSL_CERT_PATH`, `SSL_KEY_PATH`)
+   - If using SSL, verify certificate and key files exist and are readable
+   - If using SSL and OpenSSL is installed, it will validate:
+     * Certificate and key formats (tries pkey first, then RSA)
+     * Certificate domain matches DO_DOMAIN (checks both CN and SAN)
+     * Paths are absolute
+   - If using SSL and OpenSSL is not available, ensure your files are in valid PEM format
+   - If using SSL, check file permissions on SSL files
+   - For Nginx containers with SSL:
+     * Ensure SSL paths are correctly mounted
+     * Verify SSL configuration in your Nginx config
+     * Check that certificate and key paths match your Nginx config
+   - Common SSL validation errors:
+     * "Invalid key format" - Try converting your key to PEM format
+     * "Certificate domain does not match" - Check CN and SAN in your certificate
+     * "SSL certificate not readable" - Check file permissions and path
+
+3. **Registry Authentication Failures**
+   - Verify DO_ACCESS_TOKEN has correct permissions
+   - Check if the token is expired
+   - Ensure DO_REGISTRY name is correct
+   - Check DigitalOcean API status at https://status.digitalocean.com
+   - Verify your internet connection
+   - The script will automatically retry failed operations with exponential backoff
+
+4. **Deployment Rollback**
+   - Check if the :previous tag exists in the registry
+   - Verify the previous image is still available
+   - Check container logs for specific errors
+
+5. **DigitalOcean API Connectivity Issues**
+   - The script checks API connectivity before starting
+   - Implements automatic retries with exponential backoff
+   - Provides detailed error messages and troubleshooting steps
+   - Common causes:
+     * Internet connectivity issues
+     * Firewall configuration
+     * DigitalOcean API outages
+     * Invalid or expired access token
+     * Rate limiting
+
+### Getting Help
+
+If you encounter issues not covered here:
+1. Check the [GitHub Issues](https://github.com/Hino9LLC/docker-digitalocean-deploy/issues)
+2. Create a new issue with:
+   - Detailed error message
+   - Steps to reproduce
+   - Environment information
+   - Relevant logs
+   - DigitalOcean API status at the time of the error
+
+## 🤝 Contributing
+
+We welcome contributions! Here's how you can help:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+### Development Setup
+
+1. Clone the repository
+2. Make your changes
+3. Test locally:
+   ```bash
+   # Test with a sample container
+   export DO_REGISTRY="test-registry"
+   export DO_ACCESS_TOKEN="test-token"
+   export CONTAINER_NAME="test-container"
+   ./entrypoint.sh
+   ```
+4. Ensure all tests pass
+5. Update documentation if needed
+
+### Code Style
+
+- Follow the existing code style
+- Add comments for complex logic
+- Update documentation for new features
+- Add tests for new functionality
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

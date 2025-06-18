@@ -6,29 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Run tests
-        run: |
-          python -m pytest tests/ -v --asyncio-mode=strict
-        env:
-          TESTING: "true"
-
   build-and-push:
-    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -64,7 +42,6 @@ jobs:
           username: ${{ secrets.DO_USERNAME }}
           key: ${{ secrets.DO_SSH_KEY }}
           script: |
-            # Clone the deploy helper script (your entrypoint.sh lives here)
             rm -rf docker-digitalocean-deploy
             git clone https://github.com/Hino9LLC/docker-digitalocean-deploy.git
             cd docker-digitalocean-deploy
@@ -79,6 +56,6 @@ jobs:
             # Environment variables for the container
             export DATABASE_URL="${{ secrets.DATABASE_URL }}"
             export LOG_LEVEL="info"
-            export REQUIRED_APP_VARS="DATABASE_URL,LOG_LEVEL"
+            export CONTAINER_ENV_VARS="DATABASE_URL,LOG_LEVEL"
 
             ./entrypoint.sh
