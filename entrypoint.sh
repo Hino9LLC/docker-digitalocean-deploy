@@ -32,23 +32,23 @@ validate_ssl_config() {
     echo "   - SSL_KEY_PATH: ${SSL_KEY_PATH}"
 
     # Validate files exist and are readable
-    [ -r "${SSL_CERT_PATH}" ] || { 
+    [ -r "${SSL_CERT_PATH}" ] || {
         echo "❌ SSL certificate not readable: ${SSL_CERT_PATH}"
         echo "   - File exists: $([ -e "${SSL_CERT_PATH}" ] && echo "Yes" || echo "No")"
         echo "   - File permissions: $(ls -l "${SSL_CERT_PATH}" 2>/dev/null | awk '{print $1, $3, $4}' || echo "Cannot read permissions")"
         echo "   - Directory permissions: $(ls -ld "$(dirname "${SSL_CERT_PATH}")" 2>/dev/null | awk '{print $1, $3, $4}' || echo "Cannot read directory permissions")"
         echo "   - OpenSSL version: $(openssl version 2>/dev/null || echo 'Not available')"
-        exit 1 
+        exit 1
     }
-    [ -r "${SSL_KEY_PATH}" ] || { 
+    [ -r "${SSL_KEY_PATH}" ] || {
         echo "❌ SSL key not readable: ${SSL_KEY_PATH}"
         echo "   - File exists: $([ -e "${SSL_KEY_PATH}" ] && echo "Yes" || echo "No")"
         echo "   - File permissions: $(ls -l "${SSL_KEY_PATH}" 2>/dev/null | awk '{print $1, $3, $4}' || echo "Cannot read permissions")"
         echo "   - Directory permissions: $(ls -ld "$(dirname "${SSL_KEY_PATH}")" 2>/dev/null | awk '{print $1, $3, $4}' || echo "Cannot read directory permissions")"
         echo "   - OpenSSL version: $(openssl version 2>/dev/null || echo 'Not available')"
-        exit 1 
+        exit 1
     }
-    
+
     # Try to validate certificate and key formats if openssl is available
     if command -v openssl >/dev/null 2>&1; then
         # Validate certificate format
@@ -77,14 +77,14 @@ validate_ssl_config() {
         if [ -z "$cert_domain" ]; then
             cert_domain=$(openssl x509 -in "${SSL_CERT_PATH}" -noout -text 2>/dev/null | grep -A1 "Subject Alternative Name" | grep "DNS:" | head -n1 | sed 's/.*DNS://' | tr -d ' ')
         fi
-        
+
         if [ -z "$cert_domain" ]; then
             echo "❌ Could not extract domain from certificate"
             echo "   - Certificate validation failed: No domain found in certificate"
             echo "   - OpenSSL version: $(openssl version 2>/dev/null || echo 'Not available')"
             exit 1
         fi
-        
+
         if [[ "${cert_domain}" != "${DO_DOMAIN}" ]]; then
             echo "❌ Certificate domain does not match DO_DOMAIN"
             echo "   - Expected domain: ${DO_DOMAIN}"
@@ -95,7 +95,7 @@ validate_ssl_config() {
     else
         echo "⚠️ OpenSSL not available - skipping certificate and key format validation"
     fi
-    
+
     return 0
 }
 
@@ -103,13 +103,13 @@ validate_ssl_config() {
 extract_json_value() {
     local json="$1"
     local key="$2"
-    
+
     # Try using jq first if available
     if command -v jq >/dev/null 2>&1; then
         echo "$json" | jq -r --arg key "$key" '.[$key] // empty'
         return
     fi
-    
+
     # Fallback to grep/sed if jq is not available
     echo "$json" | grep -o "\"$key\":[^,}]*" | sed "s/\"$key\":\"//;s/\"//g"
 }
@@ -150,7 +150,15 @@ network_exists() {
 run_container() {
     local container_name=$1
     local http_port=$2
-    local https_port=${3:-} # Make https_port optional
+    local https_port=$3
+    shift 3
+    local extra_args=("$@")
+    local docker_args=()
+
+    # Loop through extra_args and add them to docker_args
+    for arg in "${extra_args[@]}"; do
+        docker_args+=("$arg")
+    done
 
     echo "🚀 Starting container $container_name..."
 
@@ -163,7 +171,7 @@ run_container() {
     fi
 
     # Build docker run command using an array
-    local docker_args=(
+    docker_args+=(
         "-d"
         "--name" "$container_name"
         "--network" "do-internal-network"
@@ -180,12 +188,6 @@ run_container() {
         "--ulimit" "nofile=65536:65536"
         "--security-opt" "no-new-privileges:true"
     )
-
-    # Add support for .env file if the environment variable is set
-    if [ -n "${ENV_FILE_PATH:-}" ] && [ -f "$ENV_FILE_PATH" ]; then
-        echo "📄 Adding .env file from $ENV_FILE_PATH to container"
-        docker_args+=("--env-file" "$ENV_FILE_PATH")
-    fi
 
     # Only expose ports if SSL is properly configured
     if validate_ssl_config; then
@@ -231,7 +233,7 @@ run_container() {
         echo "$output"
         return 1
     fi
-    
+
     echo "✅ Container started successfully: $output"
     return 0
 }
@@ -336,13 +338,13 @@ check_doctl_connectivity() {
     local wait_time=5
 
     echo "🔍 Checking DigitalOcean API connectivity..."
-    
+
     while [ $attempt -le $max_attempts ]; do
         if doctl account get >/dev/null 2>&1; then
             echo "✅ DigitalOcean API is accessible"
             return 0
         fi
-        
+
         echo "⚠️ Attempt $attempt/$max_attempts: DigitalOcean API is not accessible"
         if [ $attempt -lt $max_attempts ]; then
             echo "⏳ Waiting ${wait_time} seconds before retry..."
@@ -351,7 +353,7 @@ check_doctl_connectivity() {
         fi
         attempt=$((attempt + 1))
     done
-    
+
     echo "❌ Failed to connect to DigitalOcean API after $max_attempts attempts"
     echo "Please check:"
     echo "1. Your internet connection"
@@ -373,7 +375,7 @@ pull_image_with_retry() {
             echo "✅ Successfully pulled image $image"
             return 0
         fi
-        
+
         echo "⚠️ Failed to pull image on attempt $attempt"
         if [ $attempt -lt $max_attempts ]; then
             echo "⏳ Waiting ${wait_time} seconds before retry..."
@@ -382,7 +384,7 @@ pull_image_with_retry() {
         fi
         attempt=$((attempt + 1))
     done
-    
+
     echo "❌ Failed to pull image after $max_attempts attempts"
     return 1
 }
@@ -400,7 +402,7 @@ push_image_with_retry() {
             echo "✅ Successfully pushed image $image"
             return 0
         fi
-        
+
         echo "⚠️ Failed to push image on attempt $attempt"
         if [ $attempt -lt $max_attempts ]; then
             echo "⏳ Waiting ${wait_time} seconds before retry..."
@@ -409,7 +411,7 @@ push_image_with_retry() {
         fi
         attempt=$((attempt + 1))
     done
-    
+
     echo "❌ Failed to push image after $max_attempts attempts"
     return 1
 }
@@ -452,7 +454,7 @@ rollback() {
 
     # Check if we have a previous image locally or in registry
     local has_previous=false
-    
+
     # Check local images first
     if docker images | grep -q "${CONTAINER_NAME}:previous"; then
         has_previous=true
@@ -482,20 +484,41 @@ rollback() {
     fi
 }
 
-# Step 1: Check DigitalOcean connectivity
+# Step 1: Process environment variables
+APP_ENV_VARS_ARRAY=()
+if [ -n "$APP_ENV_VARS_STRING" ]; then
+    echo "🔧 Processing environment variables..."
+    IFS=',' read -ra ADDR <<<"$APP_ENV_VARS_STRING"
+    for i in "${ADDR[@]}"; do
+        # Skip empty elements
+        if [ -z "$i" ]; then
+            continue
+        fi
+        # Validate the format (should be KEY=VALUE)
+        if [[ ! "$i" =~ ^[A-Za-z0-9_]+=.+$ ]]; then
+            echo "⚠️ Warning: Skipping invalid environment variable format: $i"
+            continue
+        fi
+        # Ensure each item is correctly prefixed with -e
+        APP_ENV_VARS_ARRAY+=("-e" "$i")
+    done
+    echo "✅ Processed ${#APP_ENV_VARS_ARRAY[@]} environment variables"
+fi
+
+# Step 2: Check DigitalOcean connectivity
 if ! check_doctl_connectivity; then
     echo "❌ Cannot proceed without DigitalOcean API access"
     exit 1
 fi
 
-# Step 2: Login to DigitalOcean Container Registry
+# Step 3: Login to DigitalOcean Container Registry
 echo "🔑 Logging into DigitalOcean Container Registry..."
 if ! echo "${DO_ACCESS_TOKEN}" | docker login registry.digitalocean.com -u "${DO_ACCESS_TOKEN}" --password-stdin; then
     echo "❌ Failed to login to DigitalOcean Container Registry"
     exit 1
 fi
 
-# Step 3: Pull the latest image with retries
+# Step 4: Pull the latest image with retries
 echo "📥 Pulling latest image from registry..."
 if ! pull_image_with_retry "registry.digitalocean.com/${DO_REGISTRY}/${CONTAINER_NAME}:latest"; then
     echo "❌ Error: Failed to pull image registry.digitalocean.com/${DO_REGISTRY}/${CONTAINER_NAME}:latest"
@@ -507,35 +530,35 @@ if ! pull_image_with_retry "registry.digitalocean.com/${DO_REGISTRY}/${CONTAINER
     exit 1
 fi
 
-# Step 4: Clean up any existing temporary containers
+# Step 5: Clean up any existing temporary containers
 cleanup_temp_containers
 
-# Step 5: Save current container as previous before starting new one
+# Step 6: Save current container as previous before starting new one
 save_previous
 
-# Step 6: Start new container with temporary name and ports
+# Step 7: Start new container with temporary name and ports
 if validate_ssl_config; then
     echo "🚀 Starting new container with SSL configuration"
-    run_container "${CONTAINER_NAME}-new" 8080 8443
+    run_container "${CONTAINER_NAME}-new" 8080 8443 "${APP_ENV_VARS_ARRAY[@]}"
 else
     echo "⚠️ Starting new container without SSL configuration"
-    run_container "${CONTAINER_NAME}-new" 0 0 # Ports won't be used
+    run_container "${CONTAINER_NAME}-new" 0 0 "${APP_ENV_VARS_ARRAY[@]}"
 fi
 
-# Step 7: Wait for new container to be healthy
+# Step 8: Wait for new container to be healthy
 if ! wait_for_container "${CONTAINER_NAME}-new"; then
     echo "❌ Cleaning up failed container..."
     cleanup_temp_containers
     exit 1
 fi
 
-# Step 8: Switch to new container
+# Step 9: Switch to new container
 echo "🔄 Stopping old container and renaming new container..."
 OLD_CONTAINER_TIME_OF_DEATH=$(date +%s)
 docker stop "${CONTAINER_NAME}" || true
 docker rm -f "${CONTAINER_NAME}" || true
 
-# Step 9: Start production container directly (skip the -new container)
+# Step 10: Start production container directly (skip the -new container)
 if validate_ssl_config; then
     echo "🚀 Starting production container with SSL configuration"
     run_container "${CONTAINER_NAME}" 80 443
@@ -544,19 +567,19 @@ else
     run_container "${CONTAINER_NAME}" 0 0 # Ports won't be used
 fi
 
-# Step 10: Wait for production container to be healthy
+# Step 11: Wait for production container to be healthy
 if ! wait_for_container "${CONTAINER_NAME}"; then
     echo "❌ Failed to start production container. Rolling back..."
     rollback
     exit 1
 fi
 
-# Step 11: Calculate downtime
+# Step 12: Calculate downtime
 NEW_CONTAINER_EPOCH=$(docker inspect --format='{{.State.StartedAt}}' "${CONTAINER_NAME}" | date -f - +%s)
 DOWNTIME=$((NEW_CONTAINER_EPOCH - OLD_CONTAINER_TIME_OF_DEATH))
 echo "⏱️ Total downtime: ${DOWNTIME}s"
 
-# Step 12: Image housekeeping
+# Step 13: Image housekeeping
 cleanup_temp_containers
 cleanup_images
 

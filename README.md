@@ -143,42 +143,47 @@ The script relies on several environment variables for its configuration. These 
     * *Example*: `/etc/letsencrypt/live/example.com/privkey.pem`
     * *Note*: Must be a valid private key file in PEM format
     * *Note*: Must be an absolute path
-* **`ENV_FILE_PATH`**: Optional path to a `.env` file with environment variables for the container.
+* **`APP_ENV_VARS_STRING`**: Comma-separated list of environment variables to pass to the container.
     * *Default*: `""` (empty)
-    * *Example*: `/path/to/your/.env`
-    * *Note*: If set, the script will pass this file to the container. The file should exist and be readable.
+    * *Example*: `"DATABASE_URL=postgres://user:pass@db:5432/mydb,API_KEY=secret123"`
+    * *Note*: Only the variables explicitly listed here will be passed to the container
+    * *Note*: Each variable should be in the format `KEY=VALUE`
+    * *Note*: In GitHub Actions, you can use secrets: `"${{ secrets.DATABASE_URL }},${{ secrets.API_KEY }}"`
+    * *Note*: Variables are validated for proper format and empty values are skipped
+    * *Note*: See `sample_deploy.yml` for a comprehensive example of environment variable configuration
 
 ## 📜 Workflow Breakdown
 
 The script executes the following steps in order:
 
-1.  **Check DigitalOcean Connectivity**: Verifies API access before proceeding.
-2.  **Login to DigitalOcean Registry**: Authenticates Docker with your `DO_ACCESS_TOKEN`.
-3.  **Pull Latest Image**: Pulls `registry.digitalocean.com/${DO_REGISTRY}/${CONTAINER_NAME}:latest` with retry logic.
-4.  **Cleanup Temporary Containers**: Stops and removes any leftover containers named `${CONTAINER_NAME}-new`.
-5.  **Save Previous Image**:
+1.  **Process Environment Variables**: Validates and processes the `APP_ENV_VARS_STRING` into Docker environment arguments.
+2.  **Check DigitalOcean Connectivity**: Verifies API access before proceeding.
+3.  **Login to DigitalOcean Registry**: Authenticates Docker with your `DO_ACCESS_TOKEN`.
+4.  **Pull Latest Image**: Pulls `registry.digitalocean.com/${DO_REGISTRY}/${CONTAINER_NAME}:latest` with retry logic.
+5.  **Cleanup Temporary Containers**: Stops and removes any leftover containers named `${CONTAINER_NAME}-new`.
+6.  **Save Previous Image**:
     * If a container named `${CONTAINER_NAME}` is running, its image is tagged as `registry.digitalocean.com/${DO_REGISTRY}/${CONTAINER_NAME}:previous`.
     * This `:previous` tag is then pushed to the DigitalOcean Container Registry.
-6.  **Start New Temporary Container**:
+7.  **Start New Temporary Container**:
     * A new container is started with the name `${CONTAINER_NAME}-new` using the `latest` image.
     * If SSL variables (`DO_DOMAIN`, `SSL_CERT_PATH`, `SSL_KEY_PATH`) are set, it's configured with temporary non-standard ports (e.g., 8080 for HTTP, 8443 for HTTPS) and SSL volume mounts. Deployment will fail if SSL validation fails. Otherwise, ports are not exposed for this temporary container.
-7.  **Wait for New Temporary Container Health**: The script polls the health status of `${CONTAINER_NAME}-new` until it's `healthy` or a timeout is reached.
+8.  **Wait for New Temporary Container Health**: The script polls the health status of `${CONTAINER_NAME}-new` until it's `healthy` or a timeout is reached.
     * If it fails to become healthy, temporary containers are cleaned up, and the script exits with an error.
-8.  **Switch to New Container**: Stops and removes the old production container.
-9.  **Start Production Container**:
+9.  **Switch to New Container**: Stops and removes the old production container.
+10. **Start Production Container**:
     * The `latest` image is started as the main production container with the name `${CONTAINER_NAME}`.
     * If SSL variables are set, it's configured with standard ports (80 for HTTP, 443 for HTTPS) and SSL volume mounts. Otherwise, ports are not exposed directly by this script (assuming a reverse proxy might be in use or no external access is needed).
-10. **Wait for Production Container Health**: The script polls the health status of `${CONTAINER_NAME}`.
+11. **Wait for Production Container Health**: The script polls the health status of `${CONTAINER_NAME}`.
     * If it fails to become healthy, the `rollback` function is triggered.
-11. **Calculate Downtime**: Calculates the approximate downtime between stopping the old container and the new production container becoming healthy.
-12. **Image Housekeeping**:
+12. **Calculate Downtime**: Calculates the approximate downtime between stopping the old container and the new production container becoming healthy.
+13. **Image Housekeeping**:
     * Calls `cleanup_temp_containers` again.
     * Calls `cleanup_images` to remove old tags (except `latest` and `previous`) from the DigitalOcean Container Registry and prune local dangling images.
     * Prints a "Deployment complete!" message.
 
 ## 📦 Usage in GitHub Actions
 
-Here's an example of how to use this `entrypoint.sh` script in a GitHub Actions workflow:
+Here's an example of how to use this `entrypoint.sh` script in a GitHub Actions workflow. For a complete example with environment variables, see `sample_deploy.yml`:
 
 ```yaml
 name: Build and Deploy to DigitalOcean
@@ -189,30 +194,18 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-push:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # ... test steps ...
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to DigitalOcean Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: registry.digitalocean.com
-          username: ${{ secrets.DO_ACCESS_TOKEN }}
-          password: ${{ secrets.DO_ACCESS_TOKEN }}
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: |
-            registry.digitalocean.com/${{ secrets.DO_REGISTRY }}/${{ secrets.CONTAINER_NAME }}:latest
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # ... build and push steps ...
 
   deploy-to-droplet:
     needs: build-and-push
@@ -230,45 +223,26 @@ jobs:
             cd docker-digitalocean-deploy
             chmod +x entrypoint.sh
 
-            export DO_DOMAIN="${{ secrets.DO_DOMAIN }}"
+            # Export Host-side Environment Variables
             export DO_REGISTRY="${{ secrets.DO_REGISTRY }}"
             export DO_ACCESS_TOKEN="${{ secrets.DO_ACCESS_TOKEN }}"
             export CONTAINER_NAME="${{ secrets.CONTAINER_NAME }}"
-            export SSL_CERT_PATH="${{ secrets.SSL_CERT_PATH }}"
-            export SSL_KEY_PATH="${{ secrets.SSL_KEY_PATH }}"
+            export HEALTH_CHECK_CMD="curl -f http://localhost:8000/health || exit 1"
+
+            # Construct APP_ENV_VARS_STRING for the container's environment
+            APP_ENV_VARS_STRING=""
+            APP_ENV_VARS_STRING+="DATABASE_URL=${{ secrets.DATABASE_URL }}"
+            APP_ENV_VARS_STRING+=",API_KEY=${{ secrets.API_KEY }}"
+            APP_ENV_VARS_STRING+=",REDIS_HOST=${{ secrets.REDIS_HOST }}"
+            APP_ENV_VARS_STRING+=",REDIS_PORT=${{ secrets.REDIS_PORT }}"
+            APP_ENV_VARS_STRING+=",REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}"
+
+            export APP_ENV_VARS_STRING
 
             ./entrypoint.sh
-
 ```
 
-**Note on SSL Paths**: If `SSL_CERT_PATH` and `SSL_KEY_PATH` are used, ensure these certificate files are present on the server/runner where the Docker commands are executed. For GitHub-hosted runners, this might involve securely downloading them as a step. For self-hosted runners, they can be pre-existing paths.
-
-## Using a .env File
-
-To pass environment variables to your container using a `.env` file, you can specify the file's location using the `ENV_FILE_PATH` environment variable. This is optional, and if not set, the script will not include a `.env` file.
-
-### Steps:
-
-1. Create a `.env` file with key-value pairs of environment variables. For example:
-
-   ```env
-   DATABASE_URL=postgres://user:password@localhost:5432/dbname
-   API_KEY=your-api-key
-   ```
-
-2. Set the `ENV_FILE_PATH` environment variable to the path of your `.env` file before running the script. For example:
-
-   ```bash
-   export ENV_FILE_PATH=/path/to/your/.env
-   ```
-
-3. Run the deployment script as usual. The `.env` file will be passed to the container if the `ENV_FILE_PATH` variable is set and the file exists.
-
-4. Verify the environment variables inside the container by running:
-
-   ```bash
-   docker exec -it <container_name> env
-   ```
+For a complete example with all environment variables and configuration options, see `sample_deploy.yml` in the repository.
 
 ## 🛠️ Key Functions Explained
 

@@ -1,0 +1,110 @@
+name: Build and Deploy to DigitalOcean
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests
+        run: |
+          python -m pytest tests/ -v --asyncio-mode=strict
+        env:
+          TESTING: "true"
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to DigitalOcean Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: registry.digitalocean.com
+          username: ${{ secrets.DO_ACCESS_TOKEN }}
+          password: ${{ secrets.DO_ACCESS_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            registry.digitalocean.com/${{ secrets.DO_REGISTRY }}/${{ secrets.CONTAINER_NAME }}:latest
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache
+
+  deploy-to-droplet:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to DigitalOcean Droplet
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.DO_HOST }}
+          username: ${{ secrets.DO_USERNAME }}
+          key: ${{ secrets.DO_SSH_KEY }}
+          script: |
+            # Clone the deploy helper script (your entrypoint.sh lives here)
+            rm -rf docker-digitalocean-deploy
+            git clone https://github.com/Hino9LLC/docker-digitalocean-deploy.git
+            cd docker-digitalocean-deploy
+            chmod +x entrypoint.sh
+
+            # Export Host-side Environment Variables needed by entrypoint.sh itself
+            export DO_REGISTRY="${{ secrets.DO_REGISTRY }}"
+            export DO_ACCESS_TOKEN="${{ secrets.DO_ACCESS_TOKEN }}"
+            export CONTAINER_NAME="${{ secrets.CONTAINER_NAME }}"
+            export HEALTH_CHECK_CMD="curl -f http://localhost:8000/health || exit 1"
+
+            # Construct APP_ENV_VARS_STRING for the container's environment
+            APP_ENV_VARS_STRING=""
+
+            # Database Configuration
+            APP_ENV_VARS_STRING+="DATABASE_URL=${{ secrets.DATABASE_URL }}"
+            APP_ENV_VARS_STRING+=",DB_POOL_SIZE=20"
+            APP_ENV_VARS_STRING+=",DB_TIMEOUT=30"
+
+            # Redis Configuration
+            APP_ENV_VARS_STRING+=",REDIS_HOST=${{ secrets.REDIS_HOST }}"
+            APP_ENV_VARS_STRING+=",REDIS_PORT=${{ secrets.REDIS_PORT }}"
+            APP_ENV_VARS_STRING+=",REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}"
+
+            # Application Settings
+            APP_ENV_VARS_STRING+=",NODE_ENV=production"
+            APP_ENV_VARS_STRING+=",PORT=8000"
+            APP_ENV_VARS_STRING+=",LOG_LEVEL=info"
+            APP_ENV_VARS_STRING+=",API_VERSION=v1"
+
+            # Security
+            APP_ENV_VARS_STRING+=",JWT_SECRET=${{ secrets.JWT_SECRET }}"
+            APP_ENV_VARS_STRING+=",API_KEY=${{ secrets.API_KEY }}"
+            APP_ENV_VARS_STRING+=",CORS_ORIGIN=https://example.com"
+
+            # Feature Flags
+            APP_ENV_VARS_STRING+=",ENABLE_CACHE=true"
+            APP_ENV_VARS_STRING+=",ENABLE_RATE_LIMIT=true"
+            APP_ENV_VARS_STRING+=",ENABLE_ANALYTICS=true"
+
+            export APP_ENV_VARS_STRING
+
+            ./entrypoint.sh
