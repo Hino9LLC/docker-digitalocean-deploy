@@ -19,13 +19,6 @@
   - [🛠️ Key Functions Explained](#️-key-functions-explained)
   - [⚠️ Error Handling and Rollback](#️-error-handling-and-rollback)
   - [🎨 Customization](#-customization)
-  - [🔧 Troubleshooting](#-troubleshooting)
-    - [Common Issues](#common-issues)
-    - [Getting Help](#getting-help)
-  - [🤝 Contributing](#-contributing)
-    - [Development Setup](#development-setup)
-    - [Code Style](#code-style)
-  - [📄 License](#-license)
 
 ## 🚀 Quick Start
 
@@ -145,30 +138,26 @@ The script relies on several environment variables for its configuration. These 
     * *Note*: Must be an absolute path
 * **`APP_ENV_VARS_STRING`**: Environment variables to pass to the container.
     * *Default*: `""` (empty)
-    * *Format*: YAML block syntax with one variable per line
+    * *Format*: String concatenation with newline delimiters
     * *Example*:
       ```yaml
-      APP_ENV_VARS_STRING: |
-        DATABASE_URL=${{ secrets.DATABASE_URL }}
-        DB_POOL_SIZE=20
-        DB_TIMEOUT=30
-        
-        # Redis Configuration
-        REDIS_HOST=${{ secrets.REDIS_HOST }}
-        REDIS_PORT=${{ secrets.REDIS_PORT }}
-        REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
-        
-        # Application Settings
-        NODE_ENV=production
-        PORT=8000
-        LOG_LEVEL=info
+      APP_ENV_VARS_STRING=""
+
+      # Database Configuration
+      APP_ENV_VARS_STRING+="DATABASE_URL=${{ secrets.DATABASE_URL }}\n"
+      APP_ENV_VARS_STRING+="DB_POOL_SIZE=20\n"
+      APP_ENV_VARS_STRING+="DB_TIMEOUT=30\n"
+
+      # Feature Flags
+      APP_ENV_VARS_STRING+="ENABLE_CACHE=true\n"
+      APP_ENV_VARS_STRING+="ENABLE_RATE_LIMIT=true\n"
+      APP_ENV_VARS_STRING+="ENABLE_ANALYTICS=true"
       ```
     * *Note*: Only the variables explicitly listed here will be passed to the container
     * *Note*: Each variable should be in the format `KEY=VALUE`
     * *Note*: Comments and empty lines are supported for organization
     * *Note*: Variables are validated for proper format and empty values are skipped
     * *Note*: See `sample_deploy.yml` for a comprehensive example
-    * *Tip*: You can copy your development `.env` file and replace sensitive values with `${{ secrets.XXX }}`
 
 ## 📜 Workflow Breakdown
 
@@ -249,31 +238,31 @@ jobs:
             export HEALTH_CHECK_CMD="curl -f http://localhost:8000/health || exit 1"
 
             # Application environment variables
-            APP_ENV_VARS_STRING: |
-              DATABASE_URL=${{ secrets.DATABASE_URL }}
-              DB_POOL_SIZE=20
-              DB_TIMEOUT=30
-              
-              # Redis Configuration
-              REDIS_HOST=${{ secrets.REDIS_HOST }}
-              REDIS_PORT=${{ secrets.REDIS_PORT }}
-              REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
-              
-              # Application Settings
-              NODE_ENV=production
-              PORT=8000
-              LOG_LEVEL=info
-              API_VERSION=v1
-              
-              # Security
-              JWT_SECRET=${{ secrets.JWT_SECRET }}
-              API_KEY=${{ secrets.API_KEY }}
-              CORS_ORIGIN=https://example.com
-              
-              # Feature Flags
-              ENABLE_CACHE=true
-              ENABLE_RATE_LIMIT=true
-              ENABLE_ANALYTICS=true
+            APP_ENV_VARS_STRING=""
+            APP_ENV_VARS_STRING+="DATABASE_URL=${{ secrets.DATABASE_URL }}\n"
+            APP_ENV_VARS_STRING+="DB_POOL_SIZE=20\n"
+            APP_ENV_VARS_STRING+="DB_TIMEOUT=30\n"
+
+            # Redis Configuration
+            APP_ENV_VARS_STRING+="REDIS_HOST=${{ secrets.REDIS_HOST }}\n"
+            APP_ENV_VARS_STRING+="REDIS_PORT=${{ secrets.REDIS_PORT }}\n"
+            APP_ENV_VARS_STRING+="REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}\n"
+
+            # Application Settings
+            APP_ENV_VARS_STRING+="NODE_ENV=production\n"
+            APP_ENV_VARS_STRING+="PORT=8000\n"
+            APP_ENV_VARS_STRING+="LOG_LEVEL=info\n"
+            APP_ENV_VARS_STRING+="API_VERSION=v1\n"
+            
+            # Security
+            APP_ENV_VARS_STRING+="JWT_SECRET=${{ secrets.JWT_SECRET }}\n"
+            APP_ENV_VARS_STRING+="API_KEY=${{ secrets.API_KEY }}\n"
+            APP_ENV_VARS_STRING+="CORS_ORIGIN=https://example.com\n"
+            
+            # Feature Flags
+            APP_ENV_VARS_STRING+="ENABLE_CACHE=true\n"
+            APP_ENV_VARS_STRING+="ENABLE_RATE_LIMIT=true\n"
+            APP_ENV_VARS_STRING+="ENABLE_ANALYTICS=true\n"
 
             export APP_ENV_VARS_STRING
 
@@ -344,103 +333,4 @@ Within the `entrypoint.sh` script:
     # HEALTH_CHECK_CMD="curl --fail http://localhost:8000/health_status || exit 1"
     ```
 * **Ports**: The script uses standard 80/443 for production SSL. If your application uses different internal ports, you'll need to adjust the `-p` mappings within the `run_container` function (inside `entrypoint.sh`) for the final production container start, or ensure your container correctly exposes port 80/443 internally. The temporary container uses 8080/8443 to avoid conflicts.
-* **Docker Run Options**: The `run_container` function in `entrypoint.sh` has many common Docker options (logging, ulimits, restart policy). You can extend this function to add more specific options your application might require.
-* **Image Cleanup Logic**: The `cleanup_images` function can be adapted if you have a different tag retention policy.
-
-## 🔧 Troubleshooting
-
-### Common Issues
-
-1. **Container Health Check Fails**
-   - Verify your application is listening on the correct port
-   - Check if the health check endpoint is accessible
-   - Review container logs for application errors
-
-2. **SSL Configuration Issues**
-   - SSL is optional - containers can run without it using internal network only
-   - If using SSL, ensure all SSL-related environment variables are set (`DO_DOMAIN`, `SSL_CERT_PATH`, `SSL_KEY_PATH`)
-   - If using SSL, verify certificate and key files exist and are readable
-   - If using SSL and OpenSSL is installed, it will validate:
-     * Certificate and key formats (tries pkey first, then RSA)
-     * Certificate domain matches DO_DOMAIN (checks both CN and SAN)
-     * Paths are absolute
-   - If using SSL and OpenSSL is not available, ensure your files are in valid PEM format
-   - If using SSL, check file permissions on SSL files
-   - For Nginx containers with SSL:
-     * Ensure SSL paths are correctly mounted
-     * Verify SSL configuration in your Nginx config
-     * Check that certificate and key paths match your Nginx config
-   - Common SSL validation errors:
-     * "Invalid key format" - Try converting your key to PEM format
-     * "Certificate domain does not match" - Check CN and SAN in your certificate
-     * "SSL certificate not readable" - Check file permissions and path
-
-3. **Registry Authentication Failures**
-   - Verify DO_ACCESS_TOKEN has correct permissions
-   - Check if the token is expired
-   - Ensure DO_REGISTRY name is correct
-   - Check DigitalOcean API status at https://status.digitalocean.com
-   - Verify your internet connection
-   - The script will automatically retry failed operations with exponential backoff
-
-4. **Deployment Rollback**
-   - Check if the :previous tag exists in the registry
-   - Verify the previous image is still available
-   - Check container logs for specific errors
-
-5. **DigitalOcean API Connectivity Issues**
-   - The script checks API connectivity before starting
-   - Implements automatic retries with exponential backoff
-   - Provides detailed error messages and troubleshooting steps
-   - Common causes:
-     * Internet connectivity issues
-     * DigitalOcean API outages
-     * Invalid or expired access token
-     * Rate limiting
-
-### Getting Help
-
-If you encounter issues not covered here:
-1. Check the [GitHub Issues](https://github.com/Hino9LLC/docker-digitalocean-deploy/issues)
-2. Create a new issue with:
-   - Detailed error message
-   - Steps to reproduce
-   - Environment information
-   - Relevant logs
-   - DigitalOcean API status at the time of the error
-
-## 🤝 Contributing
-
-We welcome contributions! Here's how you can help:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-### Development Setup
-
-1. Clone the repository
-2. Make your changes
-3. Test locally:
-   ```bash
-   # Test with a sample container
-   export DO_REGISTRY="test-registry"
-   export DO_ACCESS_TOKEN="test-token"
-   export CONTAINER_NAME="test-container"
-   ./entrypoint.sh
-   ```
-4. Ensure all tests pass
-5. Update documentation if needed
-
-### Code Style
-
-- Follow the existing code style
-- Add comments for complex logic
-- Update documentation for new features
-- Add tests for new functionality
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+* **Docker Run Options**: The `run_container`

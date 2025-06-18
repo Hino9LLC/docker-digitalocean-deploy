@@ -508,7 +508,7 @@ if [ -n "$APP_ENV_VARS_STRING" ]; then
         fi
         # Ensure each item is correctly prefixed with -e
         APP_ENV_VARS_ARRAY+=("-e" "$line")
-    done <<< "$APP_ENV_VARS_STRING"
+    done <<<"$APP_ENV_VARS_STRING"
     echo "✅ Processed ${#APP_ENV_VARS_ARRAY[@]} environment variables"
 fi
 
