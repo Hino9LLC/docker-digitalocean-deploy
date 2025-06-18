@@ -488,20 +488,27 @@ rollback() {
 APP_ENV_VARS_ARRAY=()
 if [ -n "$APP_ENV_VARS_STRING" ]; then
     echo "🔧 Processing environment variables..."
-    IFS=',' read -ra ADDR <<<"$APP_ENV_VARS_STRING"
-    for i in "${ADDR[@]}"; do
-        # Skip empty elements
-        if [ -z "$i" ]; then
+    # Use newline as delimiter
+    while IFS= read -r line; do
+        # Skip empty lines
+        if [ -z "$line" ]; then
+            continue
+        fi
+        # Trim leading/trailing whitespace
+        line="${line#"${line%%[![:space:]]*}"}"
+        line="${line%"${line##*[![:space:]]}"}"
+        # Skip if empty after trimming
+        if [ -z "$line" ]; then
             continue
         fi
         # Validate the format (should be KEY=VALUE)
-        if [[ ! "$i" =~ ^[A-Za-z0-9_]+=.+$ ]]; then
-            echo "⚠️ Warning: Skipping invalid environment variable format: $i"
+        if [[ ! "$line" =~ ^[A-Za-z0-9_]+=.+$ ]]; then
+            echo "⚠️ Warning: Skipping invalid environment variable format: $line"
             continue
         fi
         # Ensure each item is correctly prefixed with -e
-        APP_ENV_VARS_ARRAY+=("-e" "$i")
-    done
+        APP_ENV_VARS_ARRAY+=("-e" "$line")
+    done <<< "$APP_ENV_VARS_STRING"
     echo "✅ Processed ${#APP_ENV_VARS_ARRAY[@]} environment variables"
 fi
 

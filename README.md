@@ -143,14 +143,32 @@ The script relies on several environment variables for its configuration. These 
     * *Example*: `/etc/letsencrypt/live/example.com/privkey.pem`
     * *Note*: Must be a valid private key file in PEM format
     * *Note*: Must be an absolute path
-* **`APP_ENV_VARS_STRING`**: Comma-separated list of environment variables to pass to the container.
+* **`APP_ENV_VARS_STRING`**: Environment variables to pass to the container.
     * *Default*: `""` (empty)
-    * *Example*: `"DATABASE_URL=postgres://user:pass@db:5432/mydb,API_KEY=secret123"`
+    * *Format*: YAML block syntax with one variable per line
+    * *Example*:
+      ```yaml
+      APP_ENV_VARS_STRING: |
+        DATABASE_URL=${{ secrets.DATABASE_URL }}
+        DB_POOL_SIZE=20
+        DB_TIMEOUT=30
+        
+        # Redis Configuration
+        REDIS_HOST=${{ secrets.REDIS_HOST }}
+        REDIS_PORT=${{ secrets.REDIS_PORT }}
+        REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+        
+        # Application Settings
+        NODE_ENV=production
+        PORT=8000
+        LOG_LEVEL=info
+      ```
     * *Note*: Only the variables explicitly listed here will be passed to the container
     * *Note*: Each variable should be in the format `KEY=VALUE`
-    * *Note*: In GitHub Actions, you can use secrets: `"${{ secrets.DATABASE_URL }},${{ secrets.API_KEY }}"`
+    * *Note*: Comments and empty lines are supported for organization
     * *Note*: Variables are validated for proper format and empty values are skipped
-    * *Note*: See `sample_deploy.yml` for a comprehensive example of environment variable configuration
+    * *Note*: See `sample_deploy.yml` for a comprehensive example
+    * *Tip*: You can copy your development `.env` file and replace sensitive values with `${{ secrets.XXX }}`
 
 ## 📜 Workflow Breakdown
 
@@ -218,24 +236,44 @@ jobs:
           username: ${{ secrets.DO_USERNAME }}
           key: ${{ secrets.DO_SSH_KEY }}
           script: |
+            # Clone the deploy helper script (your entrypoint.sh lives here)
             rm -rf docker-digitalocean-deploy
             git clone https://github.com/Hino9LLC/docker-digitalocean-deploy.git
             cd docker-digitalocean-deploy
             chmod +x entrypoint.sh
 
-            # Export Host-side Environment Variables
+            # Deploy environment variables for entrypoint.sh
             export DO_REGISTRY="${{ secrets.DO_REGISTRY }}"
             export DO_ACCESS_TOKEN="${{ secrets.DO_ACCESS_TOKEN }}"
             export CONTAINER_NAME="${{ secrets.CONTAINER_NAME }}"
             export HEALTH_CHECK_CMD="curl -f http://localhost:8000/health || exit 1"
 
-            # Construct APP_ENV_VARS_STRING for the container's environment
-            APP_ENV_VARS_STRING=""
-            APP_ENV_VARS_STRING+="DATABASE_URL=${{ secrets.DATABASE_URL }}"
-            APP_ENV_VARS_STRING+=",API_KEY=${{ secrets.API_KEY }}"
-            APP_ENV_VARS_STRING+=",REDIS_HOST=${{ secrets.REDIS_HOST }}"
-            APP_ENV_VARS_STRING+=",REDIS_PORT=${{ secrets.REDIS_PORT }}"
-            APP_ENV_VARS_STRING+=",REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}"
+            # Application environment variables
+            APP_ENV_VARS_STRING: |
+              DATABASE_URL=${{ secrets.DATABASE_URL }}
+              DB_POOL_SIZE=20
+              DB_TIMEOUT=30
+              
+              # Redis Configuration
+              REDIS_HOST=${{ secrets.REDIS_HOST }}
+              REDIS_PORT=${{ secrets.REDIS_PORT }}
+              REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+              
+              # Application Settings
+              NODE_ENV=production
+              PORT=8000
+              LOG_LEVEL=info
+              API_VERSION=v1
+              
+              # Security
+              JWT_SECRET=${{ secrets.JWT_SECRET }}
+              API_KEY=${{ secrets.API_KEY }}
+              CORS_ORIGIN=https://example.com
+              
+              # Feature Flags
+              ENABLE_CACHE=true
+              ENABLE_RATE_LIMIT=true
+              ENABLE_ANALYTICS=true
 
             export APP_ENV_VARS_STRING
 
