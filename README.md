@@ -76,6 +76,11 @@ This script automates the deployment of Docker containers to DigitalOcean's Cont
 * **Image Cleanup**:
     * Removes old image tags from the DigitalOcean Container Registry, keeping only `latest` and `previous`.
     * Prunes dangling local Docker images.
+* **Secure Environment Variable Handling**:
+    * Uses temporary environment files instead of command-line flags for enhanced security
+    * Environment variables are not exposed in `docker inspect` output
+    * Temporary files are automatically cleaned up after container startup
+    * Provides better security isolation for sensitive configuration data
 * **Optional SSL Support**: 
     * Containers can run with or without SSL
     * When SSL is configured, exposes HTTP/HTTPS ports
@@ -144,11 +149,14 @@ The script relies on several environment variables for its configuration. These 
     * *Note*: Must be a valid private key file in PEM format
     * *Note*: Must be an absolute path
 * **`CONTAINER_ENV_VARS`**: (Optional) A comma-separated list of environment variable names that will be injected into the container if set in the environment. Use this to ensure your application receives the environment variables it needs, but note that your app may have reasonable defaults if some are not set.
-    * Each variable listed will be injected into the container at runtime using Docker's `-e` flag (e.g., `-e VAR_NAME=VALUE`). Only variables that are set in the environment will be injected.
-    * This is the standard and secure way to provide configuration and secrets to containers, as the values are not stored in the image or written to disk by this script.
+    * Each variable listed will be injected into the container at runtime using Docker's `--env-file` feature with a secure temporary file.
+    * The script creates a temporary environment file with proper permissions, populates it with the specified variables, and automatically cleans it up after container startup.
+    * This approach is more secure than command-line flags as environment variables are not exposed in `docker inspect` output or process lists.
+    * Only variables that are set in the environment will be injected into the container.
+    * This is the standard and secure way to provide configuration and secrets to containers, as the values are not stored in the image or written to disk permanently by this script.
     * **Security Note:** Environment variables can be accessed by any process running inside the container. Avoid including highly sensitive secrets unless your container is trusted.
     * *Default*: `""` (empty)
-    * *Example*: DATABASE_URL,LOG_LEVEL
+    * *Example*: `DATABASE_URL,LOG_LEVEL,API_KEY`
 
 ## 📜 Workflow Breakdown
 
@@ -240,7 +248,7 @@ jobs:
 
             # Environment variables for the container
             export DATABASE_URL="${{ secrets.DATABASE_URL }}"
-            export LOG_LEVEL="info"
+            export LOG_LEVEL="INFO"
             export CONTAINER_ENV_VARS="DATABASE_URL,LOG_LEVEL"
 
             ./entrypoint.sh
@@ -271,7 +279,7 @@ Within the `entrypoint.sh` script:
     * Provides clear warnings when validation is limited
 * **`cleanup_temp_containers()`**: Ensures no stale `-new` suffixed containers are left running or existing.
 * **`network_exists()`**: Checks if the `do-internal-network` Docker network is present.
-* **`run_container()`**: The core function for running Docker containers. It dynamically builds the `docker run` command based on provided arguments, including SSL configuration, health checks, logging, and resource limits.
+* **`run_container()`**: The core function for running Docker containers. It dynamically builds the `docker run` command based on provided arguments, including SSL configuration, health checks, logging, and resource limits. Uses secure temporary environment files for variable injection instead of command-line flags.
 * **`wait_for_container()`**: Polls Docker for the container's health status, retrying several times before declaring a failure.
 * **`cleanup_images()`**: Interacts with the DigitalOcean API to list all tags for a repository, then deletes all tags except `latest` and `previous`. Also prunes local dangling Docker images.
 * **`rollback()`**: Stops the failed new container and attempts to restart the container using the `:previous` image tag.

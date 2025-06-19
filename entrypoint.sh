@@ -164,13 +164,23 @@ run_container() {
     local container_name=$1
     local http_port=$2
     local https_port=$3
-    local docker_args=()
-
-    # Add all container environment variables as -e flags
-    IFS=',' read -ra VARS <<< "${CONTAINER_ENV_VARS:-}"
-    for var in "${VARS[@]}"; do
-        docker_args+=("-e" "${var}=${!var}")
-    done
+    local env_file=""
+    
+    # Create temporary environment file
+    if [ -n "${CONTAINER_ENV_VARS:-}" ]; then
+        env_file=$(mktemp /tmp/docker-env-XXXXXX)
+        echo "📝 Creating temporary environment file: $env_file"
+        
+        # Add all container environment variables to the file
+        IFS=',' read -ra VARS <<< "${CONTAINER_ENV_VARS}"
+        for var in "${VARS[@]}"; do
+            if [ -n "${!var:-}" ]; then
+                echo "${var}=${!var}" >> "$env_file"
+            fi
+        done
+        
+        echo "✅ Environment file created with $(wc -l < "$env_file") variables"
+    fi
 
     echo "🚀 Starting container $container_name..."
 
@@ -183,7 +193,7 @@ run_container() {
     fi
 
     # Build docker run command using an array
-    docker_args+=(
+    local docker_args=(
         "-d"
         "--name" "$container_name"
         "--network" "do-internal-network"
@@ -201,6 +211,11 @@ run_container() {
         "--security-opt" "no-new-privileges:true"
     )
 
+    # Add environment file if created
+    if [ -n "$env_file" ] && [ -f "$env_file" ]; then
+        docker_args+=("--env-file" "$env_file")
+    fi
+
     # Only expose ports if SSL is properly configured
     if validate_ssl_config; then
         echo "🔌 Exposing ports for SSL-enabled container"
@@ -216,10 +231,12 @@ run_container() {
         # Ensure SSL paths are absolute and exist
         if [[ ! "${SSL_CERT_PATH}" = /* ]]; then
             echo "❌ SSL_CERT_PATH must be an absolute path"
+            [ -n "$env_file" ] && rm -f "$env_file"
             return 1
         fi
         if [[ ! "${SSL_KEY_PATH}" = /* ]]; then
             echo "❌ SSL_KEY_PATH must be an absolute path"
+            [ -n "$env_file" ] && rm -f "$env_file"
             return 1
         fi
 
@@ -243,10 +260,18 @@ run_container() {
     if ! output=$(docker run "${docker_args[@]}" 2>&1); then
         echo "❌ Failed to start container:"
         echo "$output"
+        [ -n "$env_file" ] && rm -f "$env_file"
         return 1
     fi
 
     echo "✅ Container started successfully: $output"
+    
+    # Clean up environment file
+    if [ -n "$env_file" ] && [ -f "$env_file" ]; then
+        rm -f "$env_file"
+        echo "🧹 Temporary environment file cleaned up"
+    fi
+    
     return 0
 }
 

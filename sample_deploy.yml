@@ -55,7 +55,7 @@ jobs:
 
             # Environment variables for the container
             export DATABASE_URL="${{ secrets.DATABASE_URL }}"
-            export LOG_LEVEL="info"
+            export LOG_LEVEL="INFO"
             export CONTAINER_ENV_VARS="DATABASE_URL,LOG_LEVEL"
 
             ./entrypoint.sh
