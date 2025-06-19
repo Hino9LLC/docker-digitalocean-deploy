@@ -78,9 +78,12 @@ This script automates the deployment of Docker containers to DigitalOcean's Cont
     * Prunes dangling local Docker images.
 * **Secure Environment Variable Handling**:
     * Uses temporary environment files instead of command-line flags for enhanced security
-    * Environment variables are not exposed in `docker inspect` output
+    * Environment variables are not exposed in process lists or command history
     * Temporary files are automatically cleaned up after container startup
     * Provides better security isolation for sensitive configuration data
+    * **All environment variables** (including SSL configuration) are handled via `--env-file`
+    * No `-e` flags are used anywhere in the deployment process
+    * **Note**: Environment variables are still visible via `docker inspect` as this is normal Docker behavior
 * **Optional SSL Support**: 
     * Containers can run with or without SSL
     * When SSL is configured, exposes HTTP/HTTPS ports
@@ -151,10 +154,11 @@ The script relies on several environment variables for its configuration. These 
 * **`CONTAINER_ENV_VARS`**: (Optional) A comma-separated list of environment variable names that will be injected into the container if set in the environment. Use this to ensure your application receives the environment variables it needs, but note that your app may have reasonable defaults if some are not set.
     * Each variable listed will be injected into the container at runtime using Docker's `--env-file` feature with a secure temporary file.
     * The script creates a temporary environment file with proper permissions, populates it with the specified variables, and automatically cleans it up after container startup.
-    * This approach is more secure than command-line flags as environment variables are not exposed in `docker inspect` output or process lists.
+    * SSL configuration variables (`SSL_CERT_PATH`, `SSL_KEY_PATH`, `DOMAIN`) are also added to the environment file when SSL is enabled.
+    * This approach is more secure than command-line flags as environment variables are not exposed in process lists or command history.
     * Only variables that are set in the environment will be injected into the container.
     * This is the standard and secure way to provide configuration and secrets to containers, as the values are not stored in the image or written to disk permanently by this script.
-    * **Security Note:** Environment variables can be accessed by any process running inside the container. Avoid including highly sensitive secrets unless your container is trusted.
+    * **Security Note:** Environment variables can be accessed by any process running inside the container and are visible via `docker inspect`. Avoid including highly sensitive secrets unless your container is trusted and access to the Docker daemon is properly controlled.
     * *Default*: `""` (empty)
     * *Example*: `DATABASE_URL,LOG_LEVEL,API_KEY`
 

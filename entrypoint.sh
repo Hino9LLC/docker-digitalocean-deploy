@@ -182,6 +182,22 @@ run_container() {
         echo "✅ Environment file created with $(wc -l < "$env_file") variables"
     fi
 
+    # Add SSL environment variables to the file if SSL is configured
+    if validate_ssl_config; then
+        # Create env file if it doesn't exist yet
+        if [ -z "$env_file" ]; then
+            env_file=$(mktemp /tmp/docker-env-XXXXXX)
+            echo "📝 Creating temporary environment file for SSL: $env_file"
+        fi
+        
+        # Add SSL environment variables to the file
+        echo "SSL_CERT_PATH=${SSL_CERT_PATH}" >> "$env_file"
+        echo "SSL_KEY_PATH=${SSL_KEY_PATH}" >> "$env_file"
+        echo "DOMAIN=${DO_DOMAIN}" >> "$env_file"
+        
+        echo "✅ SSL environment variables added to file"
+    fi
+
     echo "🚀 Starting container $container_name..."
 
     # Create internal network if it doesn't exist
@@ -240,13 +256,10 @@ run_container() {
             return 1
         fi
 
-        # Add SSL configuration
+        # Add SSL volume mounts (environment variables are handled by env file)
         docker_args+=(
-            "-e" "SSL_CERT_PATH=${SSL_CERT_PATH}"
-            "-e" "SSL_KEY_PATH=${SSL_KEY_PATH}"
             "-v" "${SSL_CERT_PATH}:${SSL_CERT_PATH}:ro"
             "-v" "${SSL_KEY_PATH}:${SSL_KEY_PATH}:ro"
-            "-e" "DOMAIN=${DO_DOMAIN}"
         )
     else
         echo "ℹ️ Running container without SSL - using internal network only"
