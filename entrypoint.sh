@@ -119,12 +119,65 @@ extract_json_value() {
 
     # Try using jq first if available
     if command -v jq >/dev/null 2>&1; then
-        echo "$json" | jq -r --arg key "$key" '.[$key] // empty'
-        return
+        # Add error handling for malformed JSON
+        local result
+        if result=$(echo "$json" | jq -r --arg key "$key" '.[$key] // empty' 2>/dev/null); then
+            echo "$result"
+            return
+        else
+            # If jq fails, fall back to grep/sed
+            echo "$json" | grep -o "\"$key\":[^,}]*" | sed "s/\"$key\":\"//;s/\"//g" | head -n1
+            return
+        fi
     fi
 
     # Fallback to grep/sed if jq is not available
-    echo "$json" | grep -o "\"$key\":[^,}]*" | sed "s/\"$key\":\"//;s/\"//g"
+    echo "$json" | grep -o "\"$key\":[^,}]*" | sed "s/\"$key\":\"//;s/\"//g" | head -n1
+}
+
+# Function to parse DigitalOcean API response safely
+parse_do_api_response() {
+    local response="$1"
+    local key="$2"
+    
+    # Try to extract the value using jq with proper error handling
+    if command -v jq >/dev/null 2>&1; then
+        local result
+        if result=$(echo "$response" | jq -r --arg key "$key" '.[$key] // empty' 2>/dev/null); then
+            echo "$result"
+            return 0
+        fi
+    fi
+    
+    # Fallback to grep/sed
+    echo "$response" | grep -o "\"$key\":[^,}]*" | sed "s/\"$key\":\"//;s/\"//g" | head -n1
+    return 0
+}
+
+# Function to extract tags from DigitalOcean API response
+extract_tags_from_response() {
+    local response="$1"
+    local tags=()
+    
+    # Try to extract tags using jq if available
+    if command -v jq >/dev/null 2>&1; then
+        # Extract tags array safely
+        while IFS= read -r tag; do
+            if [ -n "$tag" ] && [ "$tag" != "null" ]; then
+                tags+=("$tag")
+            fi
+        done < <(echo "$response" | jq -r '.tags[]?.tag // empty' 2>/dev/null)
+    else
+        # Fallback to grep/sed for tag extraction
+        while IFS= read -r tag_data; do
+            local tag=$(echo "$tag_data" | grep -o '"tag":"[^"]*"' | sed 's/"tag":"//;s/"//g')
+            if [ -n "$tag" ] && [ "$tag" != "null" ]; then
+                tags+=("$tag")
+            fi
+        done < <(echo "$response" | grep -o '{"tag":"[^}]*"')
+    fi
+    
+    printf '%s\n' "${tags[@]}"
 }
 
 # Function to clean up temporary containers
@@ -337,19 +390,25 @@ cleanup_images() {
             return 1
         fi
 
-        # Extract tags, excluding latest and previous
-        while read -r tag_data; do
-            local tag=$(extract_json_value "$tag_data" "tag")
-            if [ -z "$tag" ] || [ "$tag" == "null" ] || { [ "$tag" != "latest" ] && [ "$tag" != "previous" ]; }; then
-                all_tags+=("$tag")
+        # Check if response is valid JSON
+        if ! echo "$registry_response" | jq empty 2>/dev/null; then
+            echo "⚠️ Invalid JSON response from DigitalOcean API, attempting to continue with fallback parsing..."
+        fi
+
+        # Extract tags using the new safe function
+        local page_tags=()
+        while IFS= read -r tag; do
+            if [ -n "$tag" ] && [ "$tag" != "null" ] && [ "$tag" != "latest" ] && [ "$tag" != "previous" ]; then
+                page_tags+=("$tag")
             fi
-        done < <(echo "$registry_response" | grep -o '{[^}]*}')
+        done < <(extract_tags_from_response "$registry_response")
 
-        echo "📝 Found ${#all_tags[@]} images on page $page"
+        echo "📝 Found ${#page_tags[@]} images on page $page"
+        all_tags+=("${page_tags[@]}")
 
-        # Check if there are more pages
-        local next_page=$(extract_json_value "$registry_response" "next")
-        if [ -z "$next_page" ]; then
+        # Check if there are more pages using the safe parser
+        local next_page=$(parse_do_api_response "$registry_response" "next")
+        if [ -z "$next_page" ] || [ "$next_page" = "null" ]; then
             break
         fi
         ((page++))
